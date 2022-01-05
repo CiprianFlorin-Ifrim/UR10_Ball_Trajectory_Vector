@@ -1,0 +1,8 @@
+prefix=/home/ros/catkin_ws/install_isolated
+
+Name: robot_control_simulation
+Description: Description of robot_control_simulation
+Version: 0.0.0
+Cflags: -I${prefix}/include
+Libs: -L${prefix}/lib 
+Requires: rospy

@@ -1,0 +1,251 @@
+#!/usr/bin/env python3
+
+#---------------Import Libraries and msgs---------------:
+
+import rospy
+import time
+import math
+import numpy as np
+from std_msgs.msg import *
+from geometry_msgs.msg import *
+import tf2_msgs.msg
+from tf.transformations import euler_from_quaternion
+from collections import Counter
+
+
+#---------------Initialise---------------:
+
+print("Please Wait While System Starts Up...")
+rospy.init_node("move_j_example", anonymous=False)
+play = rospy.Publisher('/trajectory_generator/play', String, queue_size=10)
+ur_script = rospy.Publisher('/ur_hardware_interface/script_command', String, queue_size=10)
+time.sleep(2)
+print("System Started")
+
+
+#---------------Define Variables---------------:
+
+#Move J's are faster, since precision isn't the goal
+max_acc = 1.0
+max_vel = 1.0
+header = "def myProg():"
+footer = "\nend"
+
+#Create points for Move J's by converting joint angles into rads
+waypoint1 = [-0.29635690698863715, -1.7847736930894016, -1.4852751934471744, -1.4051645807806348, 1.577428577952475, -1.8694221618111264]
+waypoint2 = [0.13351768777756623, -1.4756758825612055, -1.7125170620568362, -1.4864969239235706, 1.5482815794441696, -1.4395475670449231]
+waypoint3 = [0.72640603468004, -1.4236650708517744, -1.560847950058529, -1.7058848108992577, 1.5320500174006224, -0.8459610884416515]
+home_waypoint = [-0.15184364492350666, -1.7163567864112237, -1.6287412579611082, -1.3281955607676847, 1.5732397877476887, -1.7247343668207964]
+
+#Add them to ordered list to move to them one by one
+robot_path = [waypoint1, waypoint2, waypoint3]
+
+
+#---------------Define Functions---------------:
+
+#Takes a quaternion and converts the wxyz into rx ry rz
+def convert_to_euler(quat):
+	x = quat.x
+	y = quat.y
+	z =  quat.z
+	w =  quat.w
+	my_quat = [x,y,z,w] #Euler from quat needs them in this order, and in a list
+	(roll, pitch, yaw) = euler_from_quaternion(my_quat)
+
+	yawMatrix = np.matrix([
+	[math.cos(yaw), -math.sin(yaw), 0],
+	[math.sin(yaw), math.cos(yaw), 0],
+	[0, 0, 1]
+	])
+
+	pitchMatrix = np.matrix([
+	[math.cos(pitch), 0, math.sin(pitch)],
+	[0, 1, 0],
+	[-math.sin(pitch), 0, math.cos(pitch)]
+	])
+
+	rollMatrix = np.matrix([
+	[1, 0, 0],
+	[0, math.cos(roll), -math.sin(roll)],
+	[0, math.sin(roll), math.cos(roll)]
+	])
+
+	R = yawMatrix * pitchMatrix * rollMatrix
+
+	theta = math.acos(((R[0, 0] + R[1, 1] + R[2, 2]) - 1) / 2)
+	multi = 1 / (2 * math.sin(theta))
+
+	rx = multi * (R[2, 1] - R[1, 2]) * theta
+	ry = multi * (R[0, 2] - R[2, 0]) * theta
+	rz = multi * (R[1, 0] - R[0, 1]) * theta
+	return rx, ry, rz
+
+def home_robot():
+	max_acc = 1.0
+	max_vel = 1.0
+	header = "def myProg():"
+	footer = "\nend"
+	home_waypoint = [-1.58825, -1.71042, -2.19911, -0.802851, 1.58825, -0.03106686]
+	move_msg ="\nmovej({},a={},v={},t={},r={})".format(home_waypoint, max_acc ,max_vel,0,0)
+	move = header + move_msg + footer
+	#ur_script_pub.publish(move)
+	return move
+	
+#Get current pose from the /tf topic
+def get_pose():
+	print("Getting pose")
+	
+	#work around to bad pose readout
+	pose_list = []
+	x_list = [] #We will round and store the X coordinate of each pose, to compare them
+	for i in range(5): #work around to bug
+		message = rospy.wait_for_message('/tf', tf2_msgs.msg.TFMessage) #Connects to topic, waits for one message and returns it
+		pose = message.transforms[-1].transform #From the last message in the list, get out just the transforms
+		pose_list.append(pose)
+		x_list.append(round(pose.translation.x, 2)) #round to make it easier to compare them
+	common_x = Counter(x_list).most_common(1)[0]
+	if common_x[1] == len(pose_list): #check if all our poses had the same x, if they did just use the latest
+		pose = pose_list[-1]
+	else:
+		#print("A bad readout has occured")
+		pose_index = x_list.index(common_x[0])
+		pose = pose_list[pose_index]
+	
+	#convert from tf2msg to geometry msg pose
+	my_pose = Pose()
+	my_pose.position = pose.translation
+	my_pose.orientation = pose.rotation
+	#print("Pose gotten")
+	return my_pose
+
+def deg_to_rad(joint_angles):
+    """ This is used to convert from degrees to radians. It's not really practical, it's just so i can select some degrees i want the robot to be in, then use this function so i can hard code those angles as radians quicker. """
+    converted_angles = []
+    for joint_angle in joint_angles:
+        rad_angle = (joint_angle * (math.pi/180))
+        converted_angles.append(rad_angle)
+    return converted_angles
+
+def play_trajectory(waypoints):
+    """Take a list of move J's and move into them one by one"""
+    move_commands=""
+    for item in waypoints:
+        move ="\nmovej({},a={},v={},t={},r={})".format(item, max_acc ,max_vel,0,0)
+        move_commands = move_commands + move
+    move_commands = header + move_commands + footer
+    ur_script.publish(move_commands)
+
+def play_move_j(joint_states):
+    move_msg = "" # Set move as a string, since this is python we dont need to do this, but hey.
+    move_msg ="\nmovej({},a={},v={},t={},r={})".format(joint_states, max_acc ,max_vel,0,0)
+    move = header + move_msg + footer
+    ur_script.publish(move)
+
+def stop_trajectory():
+    message = "def unnamed():\n\tstopj({})\nend".format(max_acc)
+    ur_script.publish(message)
+    while program_running:
+        pass
+
+def move_j_pose(pose):
+	header = "def myProg():"
+	footer = "\nend"
+	x = pose.position.x
+	y = pose.position.y
+	z = pose.position.z
+	rx, ry, rz = convert_to_euler(pose.orientation)
+	pose_str = '['+str(x)+ ',' +str(y)+ ',' +str(z)+ ',' +str(rx)+ ',' +str(ry)+ ',' +str(rz) +']'
+	command = header + '\n\tmovej(p{}, a={}, v={}, t=0, r=0)'.format(pose_str, max_acc, max_vel) + footer
+	return command
+
+def rotate_tool(rx, ry, rz):
+	"""Function that rotates using tool frame instead of base frame, so we can easily rotate in angles we're familar with"""
+	header = "def myProg():"
+	footer = "\nend"	
+	command = """
+	global pose_wrt_tool = p[{}, {}, {}, {}, {}, {}]
+	global pose_wrt_base = pose_trans(get_forward_kin(), pose_wrt_tool)
+	movel( pose_wrt_base, a={}, v={})""".format(0, 0, 0, rx, ry, rz, max_acc, max_vel)
+	ur_script.publish(header + command + footer)
+
+#---------------Main Code---------------:
+"""
+#move to home
+play_move_j(home_waypoint) #Single move J with joint angles
+time.sleep(5)
+"""
+
+"""
+#move through some trajectory
+play_trajectory(robot_path) #move through trajectory with move J
+time.sleep(5)
+"""
+
+
+#move back to home
+play_move_j(home_waypoint)
+time.sleep(4)
+
+
+"""
+#Create square using robot current pose
+print
+print("Square coded in loop")
+my_pose = get_pose()
+for corner in range(0,4): #Run 4x
+	if(corner % 2): #ODD loop iterations (1,3) #Mod returns the remainder, if the number is even remainder == 0, so we can use it this way
+		y = 0.1 if corner < 2 else -0.1	
+		my_pose.position.y += y
+	else: #EVEN loop iters (0,2)
+		x = 0.1 if corner<1 else -0.1
+		my_pose.position.x += x
+	ur_script.publish(move_j_pose(my_pose))
+	time.sleep(3)
+print("Done")
+
+
+
+print(deg_to_rad([-16.98,-102.26,-85.10,-80.51,90.38,-107.11]))
+print(deg_to_rad([7.65,-84.55,-98.12,-85.17,88.71,-82.48]))
+print(deg_to_rad([41.62,-81.57,-89.43,-97.74,87.78,-48.47]))
+"""
+
+"""
+#Rotate end effector 90 degrees in roll pitch or yaw
+rotate_tool(0, 1.5708, 0)
+time.sleep(5)
+"""
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

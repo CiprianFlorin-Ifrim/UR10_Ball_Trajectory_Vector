@@ -1,0 +1,5 @@
+geometry_msgs/Pose Message
+---
+float32 ee_trans_error
+float32 ee_rot_error
+bool ball_caught

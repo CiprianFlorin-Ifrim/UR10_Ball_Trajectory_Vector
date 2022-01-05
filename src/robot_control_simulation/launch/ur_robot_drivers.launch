@@ -1,0 +1,9 @@
+<launch>
+
+    <!-- Launch ursim drivers -->
+    <include file= "/home/ros/catkin_ws/src/Universal_Robots_ROS_Driver/ur_robot_driver/launch/ur10_bringup.launch" >
+	<arg name = "robot_ip" value="192.168.206.129" />
+	<arg name = "kinematics_config" value="/home/ros/ursim-3.15.4.106291/ur10_sim_calibration.yaml"/>
+    </include>
+
+</launch>

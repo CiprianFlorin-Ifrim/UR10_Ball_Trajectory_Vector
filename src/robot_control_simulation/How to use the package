@@ -1,0 +1,37 @@
+Step 1: Setup URSIM
+
+1: Open URSIM with admin privileges
+	cd to ~/ursim-3.15.4.106291
+	sudo ./start-ursim.sh UR10
+
+2: Wait for it to finish opening, and click through all the error messages, then close it.
+
+3: reopen without admin privs
+	./start-ursim.sh UR10
+
+------------------------------------------------------------------------------------------
+Step 2: UR-Ros drivers
+
+Option 1: use provided launch file
+	This launch file needs to be edited, but once edited, you can use it easily.
+	To Edit: 
+		gedit ~/catkin_ws/src/robot_control_simulation/launch/ur_ros_drivers.launch
+			change the "robot_ip" parameter to match the URSIM's IP
+	To launch:
+		roslaunch robot_control_simulation ur_robot_drivers.launch
+
+Option 2: use the pkgs directly
+	roslaunch ur_robot_driver ur10_bringup.launch robot_ip:="insert_URSIM's_ip_here"
+
+------------------------------------------------------------------------------------------
+Step 3: Start ball traj spawner
+
+1: rosrun robot_control_simulation ball_traj
+	This spawns a service that can be called within a script. It will return a message that tells you your distance from it as well as the orientation error.
+2: Input either 1 or 2. 
+	Inputting 1 will let you practise on just directional error, where having correct cartesian coordinates will randomise the trajectory. Inputting 2 will run the actual ball trajectory and will require the directional error and rotational error to be corrected before another ball is "thrown".
+
+
+------------------------------------------------------------------------------------------	
+Step4:
+	Control the robot using some script, and check distance and orientation from ball traj using service call as shown in example_assignment_3

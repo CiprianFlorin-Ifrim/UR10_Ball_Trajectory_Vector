@@ -1,0 +1,84 @@
+#!/usr/bin/env python3
+
+#THIS CODE HAS BEEN MADE REDUNDANT, BUT IS STILL INCLUDED AS AN EXAMPLE OF HOW TO GET TF's FROM A ROBOT
+
+import rospy
+import math
+import numpy as np
+import tf
+import time
+from geometry_msgs.msg import Pose
+from tf.transformations import euler_from_quaternion
+
+rospy.init_node("tf_listener")
+listener = tf.TransformListener()
+
+tool_tf = rospy.Publisher('tf_listener/tool_tf', Pose, queue_size = 1)
+urscript_pose = rospy.Publisher('tf_listener/urscript_pose', Pose, queue_size = 1)
+choice = -1
+choice = input("Please choose robot instance: 0(URSim) or 1(UR10):")
+while choice != "1" and choice != "0":
+	choice = input("Please choose robot instance: 0(URSim) or 1(UR10):")
+
+print("setup done")
+time.sleep(1)
+
+
+#Takes a quaternion and converts the wxyz into rx ry rz
+def convert_to_euler(quat):
+	(roll, pitch, yaw) = euler_from_quaternion(quat)
+
+	yawMatrix = np.matrix([
+	[math.cos(yaw), -math.sin(yaw), 0],
+	[math.sin(yaw), math.cos(yaw), 0],
+	[0, 0, 1]
+	])
+
+	pitchMatrix = np.matrix([
+	[math.cos(pitch), 0, math.sin(pitch)],
+	[0, 1, 0],
+	[-math.sin(pitch), 0, math.cos(pitch)]
+	])
+
+	rollMatrix = np.matrix([
+	[1, 0, 0],
+	[0, math.cos(roll), -math.sin(roll)],
+	[0, math.sin(roll), math.cos(roll)]
+	])
+
+	R = yawMatrix * pitchMatrix * rollMatrix
+
+	theta = math.acos(((R[0, 0] + R[1, 1] + R[2, 2]) - 1) / 2)
+	multi = 1 / (2 * math.sin(theta))
+
+	rx = multi * (R[2, 1] - R[1, 2]) * theta
+	ry = multi * (R[0, 2] - R[2, 0]) * theta
+	rz = multi * (R[1, 0] - R[0, 1]) * theta
+	
+	
+
+while not rospy.is_shutdown():
+	#Get pose from robot using it's transforms
+	try:
+		if choice == 0:
+			(trans,rot) = listener.lookupTransform('/base', '/tool0', rospy.Time(0))
+		else:
+			(trans,rot) = listener.lookupTransform('/base', '/tool0_controller', rospy.Time(0))
+	except (tf.LookupException, tf.ConnectivityException, tf.ExtrapolationException):
+		continue
+	
+	#Get information and collect it into a Pose msg
+	tf_msg = Pose()
+	tf_msg.position.x = trans[0]
+	tf_msg.position.y = trans[1]
+	tf_msg.position.z = trans[2]
+	tf_msg.orientation.w = rot[3]
+	tf_msg.orientation.x = rot[0]
+	tf_msg.orientation.y = rot[1]
+	tf_msg.orientation.z = rot[2]
+	
+	#Publish
+	urscript_pose.publish(tf_msg)	
+	
+
+

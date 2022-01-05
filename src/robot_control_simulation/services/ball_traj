@@ -1,0 +1,221 @@
+#!/usr/bin/env python3
+
+import rospy
+from robot_control_simulation.srv import ball_traj, ball_trajResponse #import custom service message
+import numpy as np
+import matplotlib.pyplot as plt
+import random
+import math
+from tf.transformations import euler_from_quaternion
+from geometry_msgs.msg import Pose
+
+
+###Setup
+global trajectory
+dir_only = True
+
+print("Mode1: To run the service to return only the minimum distance from end effector, input 1.")
+print("Mode2: To run the service to check for both distance and angle deviation, input 2.")
+print("Note: Even if you chose Mode1 this service will still return your angle deviation, but it will not check it's closeness to the trajectory.")
+print()
+cnt_mode = ""
+while cnt_mode != "1" and cnt_mode != "2":
+	cnt_mode = input("Please input 1 or 2: ")
+
+if cnt_mode == "1":
+	dir_only = True
+else:
+	dir_only = False
+
+
+if dir_only:
+	print("Running in Mode1: only translational error will be checked.")
+else:
+	print("Running in Mode2: Both translational and rotational error will be checked")
+print()
+
+###Service Functions
+
+def callback(req):
+    global trajectory
+    
+    #Read out message sent
+    robot_pose = req.Message
+    
+    #Make sure correct format was sent to us
+    if type(robot_pose) == type(Pose()):
+    	print("Received robot pose")
+    else:
+    	print("Incorrect message type received, make sure the message you are sending is the geometry msg <Pose>")
+    	resp = ball_trajResponse()
+    	return resp #return empty message
+    
+    #Get data from robot and use it
+    rx,ry,rz = convert_to_euler(robot_pose.orientation)
+    ee_pos = [robot_pose.position.x, robot_pose.position.y, robot_pose.position.z] #get ee pose out
+    ee_rot = rpy2rv(rx, ry, rz)
+    errors  = give_errors(trajectory, ee_pos, ee_rot)
+    caught = check_catch(errors)
+    
+    if caught:
+    	print("Ball was caught")
+    	#trajectory = randomise_traj() #Randomise traj
+    	print("Generated new ball trajectory")
+    else:
+    	print("Ball was not caught")
+    
+    #send response
+    resp = ball_trajResponse() #init response to be the right srv msg type
+    resp.ee_trans_error = errors[0]
+    resp.ee_rot_error = errors[1]
+    resp.ball_caught = caught
+    return resp
+
+def ball_traj_server():
+    global trajectory
+    rospy.init_node('ball_traj_server')
+    s = rospy.Service('ball_traj', ball_traj, callback)
+    print("Service started")
+    trajectory = randomise_traj()
+    print("Trajectory generated")
+    rospy.spin() #Keep the terminal running
+
+
+###Trajectory Functions
+
+def trajectory(P0, v0, theta, phi):
+    g = 9.81 # Gravity
+    dt = 0.01 # Time resolution (number of seconds per time step)
+    traj = [P0]
+    k = 1
+    while traj[-1][2]>0:
+        pi = [None] * 3
+        pi[0] = P0[0] + v0*np.sin(phi*np.pi/180.0)*dt*k # motion equation on x-axis. No acceleration
+        pi[1] = P0[1] + v0*np.cos(theta*np.pi/180.0)*dt*k # motion equation on y-axis. No acceleration
+        pi[2] = P0[2] + v0*np.sin(theta*np.pi/180.0)*dt*k - 0.5*g*(dt*k)*(dt*k) # motion equation on z-axis. gravity acceleration.
+        traj.append(pi)
+        k += 1
+    return(traj)
+    
+def give_errors(traj, ee_trans, ee_rot):
+    p = np.array(ee_trans)
+    d = []
+    for t in traj:
+        q = np.array(t)
+        dist = np.linalg.norm(p-q)
+        d.append(dist)
+    i = np.argmin(d) # point of minimum distance
+    traj_dir = [traj[i+1][0]-traj[i][0], traj[i+1][1]-traj[i][1], traj[i+1][2]-traj[i][2]]
+    #print(traj[i])
+    angle_deviation = np.arccos(np.dot(traj_dir,ee_rot)/(np.linalg.norm(traj_dir)*np.linalg.norm(ee_rot)))*180/np.pi
+    return(min(d), angle_deviation)
+
+def randomise_traj():
+    P0 = [0.0, 0.0, 2.0] #starting pos of traj
+    v0 = random.uniform(0.5, 1.5) # Startvelocity; use values between 0.5 and 1.5
+    theta = random.uniform(-45, 0) # The angle the ball is thrown at; use values between -60 and -30
+    phi = random.uniform(-15, 15) # lateral throwing angle respect to straight forward
+    g = 9.81 # Gravity
+    dt = 0.01 # Time resolution (number of seconds per time step) set to 60fps
+    traj = [P0]
+    k = 1
+    while traj[-1][2]>0:
+        pi = [None] * 3
+        pi[0] = P0[0] + v0*np.sin(phi*np.pi/180.0)*dt*k # motion equation on x-axis. No acceleration
+        pi[1] = P0[1] + v0*np.cos(theta*np.pi/180.0)*dt*k # motion equation on y-axis. No acceleration
+        pi[2] = P0[2] + v0*np.sin(theta*np.pi/180.0)*dt*k - 0.5*g*(dt*k)*(dt*k) # motion equation on z-axis. gravity acceleration.
+        traj.append(pi)
+        k += 1
+    return(traj)
+
+def convert_to_euler(quat):
+	x = quat.x
+	y = quat.y
+	z =  quat.z
+	w =  quat.w
+	my_quat = [x,y,z,w] #Euler from quat needs them in this order, and in a list
+	(roll, pitch, yaw) = euler_from_quaternion(my_quat)
+
+	yawMatrix = np.matrix([
+	[math.cos(yaw), -math.sin(yaw), 0],
+	[math.sin(yaw), math.cos(yaw), 0],
+	[0, 0, 1]
+	])
+
+	pitchMatrix = np.matrix([
+	[math.cos(pitch), 0, math.sin(pitch)],
+	[0, 1, 0],
+	[-math.sin(pitch), 0, math.cos(pitch)]
+	])
+
+	rollMatrix = np.matrix([
+	[1, 0, 0],
+	[0, math.cos(roll), -math.sin(roll)],
+	[0, math.sin(roll), math.cos(roll)]
+	])
+
+	R = yawMatrix * pitchMatrix * rollMatrix
+
+	theta = math.acos(((R[0, 0] + R[1, 1] + R[2, 2]) - 1) / 2)
+	multi = 1 / (2 * math.sin(theta))
+
+	rx = multi * (R[2, 1] - R[1, 2]) * theta
+	ry = multi * (R[0, 2] - R[2, 0]) * theta
+	rz = multi * (R[1, 0] - R[0, 1]) * theta
+	return rx, ry, rz
+	
+def rpy2rv(roll,pitch,yaw):
+  
+  alpha = yaw
+  beta = pitch
+  gamma = roll
+  
+  ca = math.cos(alpha)
+  cb = math.cos(beta)
+  cg = math.cos(gamma)
+  sa = math.sin(alpha)
+  sb = math.sin(beta)
+  sg = math.sin(gamma)
+  
+  r11 = ca*cb
+  r12 = ca*sb*sg-sa*cg
+  r13 = ca*sb*cg+sa*sg
+  r21 = sa*cb
+  r22 = sa*sb*sg+ca*cg
+  r23 = sa*sb*cg-ca*sg
+  r31 = -sb
+  r32 = cb*sg
+  r33 = cb*cg
+  
+  theta = math.acos((r11+r22+r33-1)/2)
+  sth = math.sin(theta)
+  kx = (r32-r23)/(2*sth)
+  ky = (r13-r31)/(2*sth)
+  kz = (r21-r12)/(2*sth)
+  
+  rv=[0,0,0]
+  rv[0] = theta*kx
+  rv[1] = theta*ky
+  rv[2] = theta*kz
+  
+  return rv
+
+def check_catch(errors):
+    """Check distance and orientation, and confirm they're within threshhold """
+    dir_thresh = 0.05 #5cm degree of accurracy
+    ori_thresh = 5 #5degrees degree of accuracy
+    
+    if dir_only: #Check only for min distance
+    	if errors[0] < dir_thresh:
+    		return True
+    	else:
+    		return False
+    else:
+    	if errors[0] < dir_thresh and errors[1] < ori_thresh:
+    		return True
+    	else:
+    		return False
+
+
+if __name__ == "__main__":
+    ball_traj_server()

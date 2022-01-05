@@ -1,0 +1,48 @@
+Run the URSIM:
+	cd to ~/ursim.
+
+Autocomplete:
+	If the file that you want to run / dir that you want to cd to exists, you can use auto complete to get to it.
+	To do this, type in some letters of the word and hit tab.
+	IE. if i typed <cd h> in a dir that only contains the folder "hello_world", hitting tab would input <cd hello_world> for me.
+	
+cd to root:
+	cd ~
+
+cd out 1 directory:
+	cd ..
+
+cd out of directories repeatedly:
+	cd ../../..  etc
+	
+list contents of folder:
+	ls
+	this wont show hidden contents.
+
+Get to a ros package directory quickly:
+	roscd <pack_name>
+		ie roscd robot_control_simulation
+
+Stop a program from running safely (interrupt):
+	ctrl + c in the appropriate terminal
+
+Force stop:
+	ctrl + z
+
+Open new terminal tab:
+	ctrl + shift + t
+	This opens a new terminal at the path of the previous terminal.
+	IE, if the terminal is at ~/catkin_ws/src, your new tab will be too.
+	
+Making a file executable:
+	cd to directory the file is in
+	chmod +x file_name
+
+running a single node:
+	before running a node, make sure it's configured properly. (follow ros tutorials for help)
+	rosrun package_name node_name
+
+running a launch file:
+	roslaunch pkg_name launch_file_name
+
+
