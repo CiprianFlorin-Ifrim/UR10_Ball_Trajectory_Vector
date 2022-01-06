@@ -12,7 +12,7 @@ from geometry_msgs.msg import *
 import tf2_msgs.msg
 from tf.transformations import euler_from_quaternion
 from collections import Counter
-
+#https://www.universal-robots.com/articles/ur/application-installation/what-is-a-singularity/
 #---------------Define Variables---------------:
 
 #Move J's are faster, since precision isn't the goal
@@ -26,7 +26,7 @@ footer = "\nend"
 #Get current pose from the /tf topic
 def get_pose():
 	print("Getting pose")
-	
+
 	#work around to bad pose readout
 	pose_list = []
 	x_list = [] #We will round and store the X coordinate of each pose, to compare them
@@ -42,7 +42,7 @@ def get_pose():
 		#print("A bad readout has occured")
 		pose_index = x_list.index(common_x[0])
 		pose = pose_list[pose_index]
-	
+
 	#convert from tf2msg to geometry msg pose
 	my_pose = Pose()
 	my_pose.position = pose.translation
@@ -60,7 +60,7 @@ def check_errors(robot_pose):
 		return errors
 	except rospy.ServiceException as e:
 		print("Service call failed: %s"%e)
-		
+
 #Takes a quaternion and converts the wxyz into rx ry rz
 def convert_to_euler(quat):
 	x = quat.x
@@ -96,37 +96,37 @@ def convert_to_euler(quat):
 	rx = multi * (R[2, 1] - R[1, 2]) * theta
 	ry = multi * (R[0, 2] - R[2, 0]) * theta
 	rz = multi * (R[1, 0] - R[0, 1]) * theta
-	return rx, ry, rz	
-	
+	return rx, ry, rz
+
 def rotate_tool(rx, ry, rz):
 	"""Function that rotates using tool frame instead of base frame, so we can easily rotate in angles we're familar with"""
 	header = "def myProg():"
-	footer = "\nend"	
+	footer = "\nend"
 	command = """
 	global pose_wrt_tool = p[{}, {}, {}, {}, {}, {}]
 	global pose_wrt_base = pose_trans(get_forward_kin(), pose_wrt_tool)
 	movel( pose_wrt_base, a={}, v={})""".format(0, 0, 0, rx, ry, rz, max_acc, max_vel)
 	ur_script.publish(header + command + footer)
-	
+
 def deg_to_rad(joint_angles):
-    """ This is used to convert from degrees to radians. It's not really practical, it's just so i can select some degrees i want the robot to be in, then use this function so i can hard code those angles as radians quicker. """
-    converted_angles = []
-    for joint_angle in joint_angles:
-        rad_angle = (joint_angle * (math.pi/180))
-        converted_angles.append(rad_angle)
-    return converted_angles
-    
+	""" This is used to convert from degrees to radians. It's not really practical, it's just so i can select some degrees i want the robot to be in, then use this function so i can hard code those angles as radians quicker. """
+	converted_angles = []
+	for joint_angle in joint_angles:
+		rad_angle = (joint_angle * (math.pi/180))
+		converted_angles.append(rad_angle)
+	return converted_angles
+
 def home_robot():
 	max_acc = 1.0
 	max_vel = 1.0
 	header = "def myProg():"
 	footer = "\nend"
-	home_waypoint = [-1.0, -1.0, -2.0, -0.802851, 1.58825, -0.03106686]
+	home_waypoint = [-1, -1, -5, -1.57, 1.57, 1.57]
 	move_msg ="\nmovej({},a={},v={},t={},r={})".format(home_waypoint, max_acc ,max_vel,0,0)
 	move = header + move_msg + footer
 	ur_script_pub.publish(move)
 	return move
-	
+
 #Convert pose into command
 def generate_command(pose):
 	""" The URSIM-ROS drivers require us to send strings that it decodes and uses for data in it's inverse kinematics, so we convert our pose msg into a string before sending it off.
@@ -140,7 +140,18 @@ def generate_command(pose):
 	pose_str = '['+str(x)+ ',' +str(y)+ ',' +str(z)+ ',' +str(rx)+ ',' +str(ry)+ ',' +str(rz) +']'
 	command = header + '\n\tmovel(p{}, a={}, v={}, t=0, r=0)'.format(pose_str, max_acc, max_vel) + footer
 	return command
-	
+
+def move_j_pose(pose):
+	header = "def myProg():"
+	footer = "\nend"
+	x = pose.position.x
+	y = pose.position.y
+	z = pose.position.z
+	rx, ry, rz = convert_to_euler(pose.orientation)
+	pose_str = '['+str(x)+ ',' +str(y)+ ',' +str(z)+ ',' +str(rx)+ ',' +str(ry)+ ',' +str(rz) +']'
+	command = header + '\n\tmovej(p{}, a={}, v={}, t=0, r=0)'.format(pose_str, max_acc, max_vel) + footer
+	return command
+
 #---------------Initialise---------------:
 print("Please Wait While System Starts Up...")
 rospy.init_node("example_node", anonymous = False)
@@ -148,96 +159,152 @@ ur_script_pub = rospy.Publisher('/ur_hardware_interface/script_command', String,
 time.sleep(2) # Give code time to connect and initialise before we do anything
 print("System Started")
 
-#---------------Main Code---------------:
-
-"""
-#Some movement
-home_robot()
-
-#get current pose
-my_pose = get_pose()
-#print("Robot pose: ", my_pose)
-
-#Get errors out
-errors = check_errors(my_pose)
-
-print("Cartesian error:", (errors.ee_trans_error),"m") #Directional error in degrees
-print("Orientational error:", errors.ee_rot_error, "degrees")
-print("Ball caught:",errors.ball_caught)
-
-#move in one axis
-#move in all positions until the distance starts getting lower, then enchance
-"""
-
+#---------------main code---------------:
 print("Main code is now running") 
 
+#---------------move l definition---------------:
 def move_l_return_error(axis, value):
-    #print("In definition now, calculating")
-    initial_pose = get_pose()
-    if axis == "x":
-        initial_pose.position.x += value
-    elif axis == "y":
-        initial_pose.position.y += value
-    elif axis == "z":
-        initial_pose.position.z += value
-        
-    ur_script_pub.publish(generate_command(initial_pose))
-    time.sleep(2)
-    distance_error = (check_errors(initial_pose)).ee_trans_error
-    return distance_error
+	#print("In definition now, calculating")
+	initial_pose = get_pose()
+	if axis == "x":
+		initial_pose.position.x += value
+	elif axis == "y":
+		initial_pose.position.y += value
+	elif axis == "z":
+		initial_pose.position.z += value
 
+	ur_script_pub.publish(generate_command(initial_pose))
+	time.sleep(2)
+	distance_error = (check_errors(initial_pose)).ee_trans_error
+	return distance_error
+
+#---------------move j definition---------------:
+def move_j_return_error(axis, value):
+	#print("In definition now, calculating")
+	initial_pose = get_pose()
+	if axis == "x":
+		initial_pose.position.x += value
+	elif axis == "y":
+		initial_pose.position.y += value
+	elif axis == "z":
+		initial_pose.position.z += value
+
+	ur_script_pub.publish(move_j_pose(initial_pose))
+	time.sleep(2)
+	distance_error = (check_errors(initial_pose)).ee_trans_error
+	return distance_error
+
+#---------------move to home coordinates---------------:
 home_robot()
 time.sleep(5)
 
+#---------------cartesian distance solution---------------:
 initial_pose = get_pose()
 errors = check_errors(initial_pose)
 cartesian_error = errors.ee_trans_error
+ball_caught = errors.ball_caught
 print("Cartesian error:", cartesian_error ,"m") #Directional error in degrees
+print("Ball caught:", ball_caught) #Boolean tell that tells us if the ball was caught or not
+
+while ball_caught == False:
+	last_error = 0
+	while cartesian_error >= 0.60:
+		new_error =  move_l_return_error("z", 0.1)
+		last_error = new_error
+		print("The new error with z+ is: ",  new_error)
+		while last_error >= 0.60:
+			if new_error > cartesian_error:
+				new_error =  move_l_return_error("z", -0.1)
+				last_error = new_error
+				print("The new error with z- is: ",  new_error)
+			new_error =  move_l_return_error("x", -0.2)
+			print("The new error with x- is: ",  new_error)
+			if new_error > last_error:
+				new_error =  move_l_return_error("x", +0.4)
+				last_error = new_error
+				print("The new error with x+ is: ",  new_error)
+			new_error =  move_l_return_error("y", -0.3)
+			print("The new error with y- is: ",  new_error)
+			if new_error > last_error:
+				new_error =  move_l_return_error("y", +0.6)
+				last_error = new_error
+				print("The new error with y+ is: ",  new_error)
+		cartesian_error = last_error
+		break
+
+	while cartesian_error >= 0.20:
+		new_error =  move_l_return_error("z", 0.05)
+		last_error = new_error
+		print("The new error with z+ is: ",  new_error)
+		while new_error >= 0.20:
+			if new_error > last_error:
+				new_error =  move_l_return_error("z", +0.1)
+				last_error = new_error
+				print("The new error with z- is: ",  new_error)
+
+			new_error =  move_l_return_error("x", -0.15)
+			print("The new error with x- is: ",  new_error)
+			if new_error > last_error:
+				new_error =  move_l_return_error("x", +0.25)
+				last_error = new_error
+				print("The new error with x+ is: ",  new_error)
+
+			new_error =  move_l_return_error("y", -0.15)
+			print("The new error with y- is: ",  new_error)
+			if new_error > last_error:
+				new_error =  move_l_return_error("y", +0.25)
+				last_error = new_error
+				print("The new error with y+ is: ",  new_error)
+		cartesian_error is last_error if new_error > last_error else cartesian_error is new_error
+		break
+
+	while cartesian_error > 0.050:
+		new_error =  move_j_return_error("z", 0.02)
+		last_error = new_error
+		print("The new error with z+ is: ",  new_error)
+		while new_error > 0.050:
+			if new_error > last_error:
+				new_error =  move_j_return_error("z", +0.04)
+				last_error = new_error
+				print("The new error with z- is: ",  new_error)
+
+			new_error =  move_j_return_error("x", -0.05)
+			print("The new error with x- is: ",  new_error)
+			if new_error > last_error:
+				new_error =  move_j_return_error("x", +0.10)
+				last_error = new_error
+				print("The new error with x+ is: ",  new_error)
+
+			new_error =  move_j_return_error("y", -0.06)
+			print("The new error with y- is: ",  new_error)
+			if new_error > last_error:
+				new_error =  move_j_return_error("y", +0.12)
+				last_error = new_error
+				print("The new error with y+ is: ",  new_error)
+		cartesian_error is last_error if new_error > last_error else cartesian_error is new_error
+		break
 
 
-new_error =  move_l_return_error("z", 0.1)
-print("The new error is: ",  new_error)
-if new_error > cartesian_error:
-    new_error =  move_l_return_error("z", -0.1)
-    print("The new error is: ",  new_error)
-new_error =  move_l_return_error("x", -0.1)
-print("The new error is: ",  new_error)
-if new_error > cartesian_error:
-    new_error =  move_l_return_error("x", +0.1)  
-    print("The new error is: ",  new_error)    
-new_error =  move_l_return_error("y", -0.1)      
-print("The new error is: ",  new_error) 
-if new_error > cartesian_error:
-    new_error =  move_l_return_error("y", +0.1)    
-    print("The new error is: ",  new_error)
-     
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	
-	 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
