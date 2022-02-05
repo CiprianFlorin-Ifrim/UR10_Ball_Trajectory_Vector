@@ -51,15 +51,14 @@ def callback(req):
     	return resp #return empty message
     
     #Get data from robot and use it
-    rx,ry,rz = convert_to_euler(robot_pose.orientation)
     ee_pos = [robot_pose.position.x, robot_pose.position.y, robot_pose.position.z] #get ee pose out
-    ee_rot = rpy2rv(rx, ry, rz)
+    ee_rot = quat2rv(robot_pose.orientation)
     errors  = give_errors(trajectory, ee_pos, ee_rot)
     caught = check_catch(errors)
     
     if caught:
     	print("Ball was caught")
-    	#trajectory = randomise_traj() #Randomise traj
+    	trajectory = randomise_traj() #Randomise traj
     	print("Generated new ball trajectory")
     else:
     	print("Ball was not caught")
@@ -113,7 +112,7 @@ def give_errors(traj, ee_trans, ee_rot):
 def randomise_traj():
     P0 = [0.0, 0.0, 2.0] #starting pos of traj
     v0 = random.uniform(0.5, 1.5) # Startvelocity; use values between 0.5 and 1.5
-    theta = random.uniform(-45, 0) # The angle the ball is thrown at; use values between -60 and -30
+    theta = random.uniform(-45, 0) # The angle the ball is thrown at; use values between -45 and -0
     phi = random.uniform(-15, 15) # lateral throwing angle respect to straight forward
     g = 9.81 # Gravity
     dt = 0.01 # Time resolution (number of seconds per time step) set to 60fps
@@ -128,77 +127,21 @@ def randomise_traj():
         k += 1
     return(traj)
 
-def convert_to_euler(quat):
+def quat2rv(quat):
+	"""Multiply a vector by our quaternion to get our vector rotation from quat and inverse the results"""
 	x = quat.x
 	y = quat.y
 	z =  quat.z
 	w =  quat.w
-	my_quat = [x,y,z,w] #Euler from quat needs them in this order, and in a list
-	(roll, pitch, yaw) = euler_from_quaternion(my_quat)
-
-	yawMatrix = np.matrix([
-	[math.cos(yaw), -math.sin(yaw), 0],
-	[math.sin(yaw), math.cos(yaw), 0],
-	[0, 0, 1]
-	])
-
-	pitchMatrix = np.matrix([
-	[math.cos(pitch), 0, math.sin(pitch)],
-	[0, 1, 0],
-	[-math.sin(pitch), 0, math.cos(pitch)]
-	])
-
-	rollMatrix = np.matrix([
-	[1, 0, 0],
-	[0, math.cos(roll), -math.sin(roll)],
-	[0, math.sin(roll), math.cos(roll)]
-	])
-
-	R = yawMatrix * pitchMatrix * rollMatrix
-
-	theta = math.acos(((R[0, 0] + R[1, 1] + R[2, 2]) - 1) / 2)
-	multi = 1 / (2 * math.sin(theta))
-
-	rx = multi * (R[2, 1] - R[1, 2]) * theta
-	ry = multi * (R[0, 2] - R[2, 0]) * theta
-	rz = multi * (R[1, 0] - R[0, 1]) * theta
-	return rx, ry, rz
 	
-def rpy2rv(roll,pitch,yaw):
-  
-  alpha = yaw
-  beta = pitch
-  gamma = roll
-  
-  ca = math.cos(alpha)
-  cb = math.cos(beta)
-  cg = math.cos(gamma)
-  sa = math.sin(alpha)
-  sb = math.sin(beta)
-  sg = math.sin(gamma)
-  
-  r11 = ca*cb
-  r12 = ca*sb*sg-sa*cg
-  r13 = ca*sb*cg+sa*sg
-  r21 = sa*cb
-  r22 = sa*sb*sg+ca*cg
-  r23 = sa*sb*cg-ca*sg
-  r31 = -sb
-  r32 = cb*sg
-  r33 = cb*cg
-  
-  theta = math.acos((r11+r22+r33-1)/2)
-  sth = math.sin(theta)
-  kx = (r32-r23)/(2*sth)
-  ky = (r13-r31)/(2*sth)
-  kz = (r21-r12)/(2*sth)
-  
-  rv=[0,0,0]
-  rv[0] = theta*kx
-  rv[1] = theta*ky
-  rv[2] = theta*kz
-  
-  return rv
+	rv = [0,0,0]
+	
+	rv[0] = -(2 * (x * z - w * y))
+	rv[1] = -(2 * (y * z + w * x))
+	rv[2] = -(1 - 2 * (x * x + y * y))
+	#we flip all 3 so that the orientation is upside down to what is measured, so that the end effector faces towards the ceiling
+	
+	return rv
 
 def check_catch(errors):
     """Check distance and orientation, and confirm they're within threshhold """
@@ -215,7 +158,6 @@ def check_catch(errors):
     		return True
     	else:
     		return False
-
 
 if __name__ == "__main__":
     ball_traj_server()

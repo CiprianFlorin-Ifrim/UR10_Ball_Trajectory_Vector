@@ -93,12 +93,12 @@ def home_robot():
 	
 #Get current pose from the /tf topic
 def get_pose():
-	print("Getting pose")
+	#print("Getting pose")
 	
 	#work around to bad pose readout
 	pose_list = []
 	x_list = [] #We will round and store the X coordinate of each pose, to compare them
-	for i in range(5): #work around to bug
+	for i in range(8): #work around to bug
 		message = rospy.wait_for_message('/tf', tf2_msgs.msg.TFMessage) #Connects to topic, waits for one message and returns it
 		pose = message.transforms[-1].transform #From the last message in the list, get out just the transforms
 		pose_list.append(pose)
@@ -107,7 +107,8 @@ def get_pose():
 	if common_x[1] == len(pose_list): #check if all our poses had the same x, if they did just use the latest
 		pose = pose_list[-1]
 	else:
-		#print("A bad readout has occured")
+		#print("A bad readout has occured,", len(pose_list) - common_x[1],"/", len(pose_list), "were bad")
+		#print("X positions:",x_list)
 		pose_index = x_list.index(common_x[0])
 		pose = pose_list[pose_index]
 	
@@ -174,20 +175,20 @@ def rotate_tool(rx, ry, rz):
 play_move_j(home_waypoint) #Single move J with joint angles
 time.sleep(5)
 """
-
 """
+
 #move through some trajectory
 play_trajectory(robot_path) #move through trajectory with move J
 time.sleep(5)
 """
 
-
-#move back to home
+"""
+move back to home
 play_move_j(home_waypoint)
 time.sleep(4)
-
-
 """
+
+
 #Create square using robot current pose
 print
 print("Square coded in loop")
@@ -204,7 +205,7 @@ for corner in range(0,4): #Run 4x
 print("Done")
 
 
-
+"""
 print(deg_to_rad([-16.98,-102.26,-85.10,-80.51,90.38,-107.11]))
 print(deg_to_rad([7.65,-84.55,-98.12,-85.17,88.71,-82.48]))
 print(deg_to_rad([41.62,-81.57,-89.43,-97.74,87.78,-48.47]))

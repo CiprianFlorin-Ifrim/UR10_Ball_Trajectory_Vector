@@ -62,12 +62,12 @@ def convert_to_euler(quat):
 
 #Get current pose from the /tf topic
 def get_pose():
-	print("Getting pose")
+	#print("Getting pose")
 	
 	#work around to bad pose readout
 	pose_list = []
 	x_list = [] #We will round and store the X coordinate of each pose, to compare them
-	for i in range(5): #work around to bug
+	for i in range(8): #work around to bug
 		message = rospy.wait_for_message('/tf', tf2_msgs.msg.TFMessage) #Connects to topic, waits for one message and returns it
 		pose = message.transforms[-1].transform #From the last message in the list, get out just the transforms
 		pose_list.append(pose)
@@ -76,7 +76,8 @@ def get_pose():
 	if common_x[1] == len(pose_list): #check if all our poses had the same x, if they did just use the latest
 		pose = pose_list[-1]
 	else:
-		#print("A bad readout has occured")
+		#print("A bad readout has occured,", len(pose_list) - common_x[1],"/", len(pose_list), "were bad")
+		#print("X positions:",x_list)
 		pose_index = x_list.index(common_x[0])
 		pose = pose_list[pose_index]
 	
@@ -128,7 +129,7 @@ print("System Started")
 #print(get_pose())
 
 #---------------Main Code---------------:
-"""
+
 
 my_pos = get_pose()
 #my_pos.position.x = my_pos.position.x - 0.1
@@ -137,7 +138,7 @@ command = generate_command(my_pos)
 ur_script_pub.publish(command)
 
 
-
+"""
 #FIX DEFAULT POSE
 #Move to a default position
 default_pose = get_default_pose()
@@ -154,13 +155,13 @@ print("Done")
 initial_pose = get_pose() 		#Get our current pose and store it as pose msg
 print
 print("Simple linear move in 1 axis:")
-print("Initial Z: ",initial_pose.position.z)
-initial_pose.position.z += 0.1 		#Get out just the current linear X position in relation to base frame
-print("New Z: ",initial_pose.position.z)	 	
+print"Initial Z: ",initial_pose.position.z
+initial_pose.position.z -= 0.05 		#Get out just the current linear X position in relation to base frame
+print"New Z: ",initial_pose.position.z	 	
 ur_script_pub.publish(generate_command(initial_pose)) #In meters so 0.1 = 10cm
 time.sleep(2) #Give command time to finish executing (Usually you have a function to check when the UR10 is free, and continue after that, but that's currently broken)
 print("Done")
-
+"""
 
 """
 #Easy square (Bad coding convention)
@@ -184,7 +185,7 @@ my_pose.position.y -= 0.1
 ur_script_pub.publish(generate_command(my_pose))
 time.sleep(2)
 print("Done")
-
+"""
 
 """
 #Square with loop

@@ -17,12 +17,12 @@ from collections import Counter
 
 #Get current pose from the /tf topic
 def get_pose():
-	print("Getting pose")
+	#print("Getting pose")
 	
 	#work around to bad pose readout
 	pose_list = []
 	x_list = [] #We will round and store the X coordinate of each pose, to compare them
-	for i in range(5): #work around to bug
+	for i in range(8): #work around to bug
 		message = rospy.wait_for_message('/tf', tf2_msgs.msg.TFMessage) #Connects to topic, waits for one message and returns it
 		pose = message.transforms[-1].transform #From the last message in the list, get out just the transforms
 		pose_list.append(pose)
@@ -31,7 +31,8 @@ def get_pose():
 	if common_x[1] == len(pose_list): #check if all our poses had the same x, if they did just use the latest
 		pose = pose_list[-1]
 	else:
-		#print("A bad readout has occured")
+		#print("A bad readout has occured,", len(pose_list) - common_x[1],"/", len(pose_list), "were bad")
+		#print("X positions:",x_list)
 		pose_index = x_list.index(common_x[0])
 		pose = pose_list[pose_index]
 	
@@ -42,6 +43,7 @@ def get_pose():
 	#print("Pose gotten")
 	return my_pose
 
+#Call the service ball_traj and send out pose to it
 def check_errors(robot_pose):
 	print("waiting for service")
 	rospy.wait_for_service('ball_traj')
@@ -51,7 +53,7 @@ def check_errors(robot_pose):
 		return errors
 	except rospy.ServiceException as e:
 		print("Service call failed: %s"%e)
-	
+
 #---------------Initialise---------------:
 print("Please Wait While System Starts Up...")
 rospy.init_node("example_node", anonymous = False)
@@ -61,18 +63,16 @@ print("System Started")
 
 #---------------Main Code---------------:
 
-#Some movement
-
 #get current pose
 my_pose = get_pose()
-print("Robot pose: ", my_pose)
 
 #Get errors out
 errors = check_errors(my_pose)
 
-print("Cartesian error:", (errors.ee_trans_error),"m") #Directional error in degrees
-print("Orientational error:", errors.ee_rot_error, "degrees")
-print("Ball caught:",errors.ball_caught)
+print("Cartesian error:", (errors.ee_trans_error),"m") #Directional error in meters
+print("Orientational error:", errors.ee_rot_error, "degrees") #Rotational error in degrees
+print("Ball caught:",errors.ball_caught) #Boolean tell that tells us if the ball was caught or not
+
 
 
 

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 #---------------Import Libraries and msgs---------------:
-
 import rospy
 from robot_control_simulation.srv import * #response msg type
 import time
@@ -16,8 +15,8 @@ from collections import Counter
 #---------------Define Variables---------------:
 
 #Move J's are faster, since precision isn't the goal
-max_acc = 1.0
-max_vel = 1.0
+max_acc = 0.5
+max_vel = 0.5
 header = "def myProg():"
 footer = "\nend"
 
@@ -25,7 +24,7 @@ footer = "\nend"
 
 #Get current pose from the /tf topic
 def get_pose():
-	print("Getting pose")
+	#print("Getting pose")
 
 	#work around to bad pose readout
 	pose_list = []
@@ -51,10 +50,10 @@ def get_pose():
 	return my_pose
 
 def check_errors(robot_pose):
-	print("Waiting for service...")
+	#print("Waiting for service...")
 	rospy.wait_for_service('ball_traj')
 	try:
-		print("Service is running. Checking error!")
+		#print("Service is running. Checking error!")
 		my_ball_traj = rospy.ServiceProxy('ball_traj', ball_traj)
 		errors = my_ball_traj(robot_pose)
 		return errors
@@ -106,7 +105,7 @@ def rotate_tool(rx, ry, rz):
 	global pose_wrt_tool = p[{}, {}, {}, {}, {}, {}]
 	global pose_wrt_base = pose_trans(get_forward_kin(), pose_wrt_tool)
 	movel( pose_wrt_base, a={}, v={})""".format(0, 0, 0, rx, ry, rz, max_acc, max_vel)
-	ur_script.publish(header + command + footer)
+	ur_script_pub.publish(header + command + footer)
 
 def deg_to_rad(joint_angles):
 	""" This is used to convert from degrees to radians. It's not really practical, it's just so i can select some degrees i want the robot to be in, then use this function so i can hard code those angles as radians quicker. """
@@ -152,16 +151,6 @@ def move_j_pose(pose):
 	command = header + '\n\tmovej(p{}, a={}, v={}, t=0, r=0)'.format(pose_str, max_acc, max_vel) + footer
 	return command
 
-#---------------Initialise---------------:
-print("Please Wait While System Starts Up...")
-rospy.init_node("example_node", anonymous = False)
-ur_script_pub = rospy.Publisher('/ur_hardware_interface/script_command', String, queue_size=10) #connect to topic that takes urscripts
-time.sleep(2) # Give code time to connect and initialise before we do anything
-print("System Started")
-
-#---------------main code---------------:
-print("Main code is now running") 
-
 #---------------move l definition---------------:
 def move_l_return_error(axis, value):
 	#print("In definition now, calculating")
@@ -174,7 +163,7 @@ def move_l_return_error(axis, value):
 		initial_pose.position.z += value
 
 	ur_script_pub.publish(generate_command(initial_pose))
-	time.sleep(2)
+	time.sleep(3)
 	distance_error = (check_errors(initial_pose)).ee_trans_error
 	return distance_error
 
@@ -190,9 +179,32 @@ def move_j_return_error(axis, value):
 		initial_pose.position.z += value
 
 	ur_script_pub.publish(move_j_pose(initial_pose))
-	time.sleep(2)
+	time.sleep(3)
 	distance_error = (check_errors(initial_pose)).ee_trans_error
 	return distance_error
+
+def rotate_endeffector_return_error(moment, value):
+	if moment == "roll":
+		rotate_tool(value, 0, 0)
+	elif moment == "pitch":
+		rotate_tool(0, value, 0)
+	elif moment == "yaw":
+		rotate_tool(0, 0, value)
+
+	rotation_error = (check_errors(get_pose())).ee_rot_error
+	return rotation_error
+
+#---------------Initialise---------------:
+print("Please Wait While System Starts Up...")
+rospy.init_node("example_node", anonymous = False)
+ur_script_pub = rospy.Publisher('/ur_hardware_interface/script_command', String, queue_size=10) #connect to topic that takes urscripts
+time.sleep(2) # Give code time to connect and initialise before we do anything
+print("System Started")
+
+
+#---------------main code---------------:
+print("Main code is now running") 
+
 
 #---------------move to home coordinates---------------:
 home_robot()
@@ -201,110 +213,132 @@ time.sleep(5)
 #---------------cartesian distance solution---------------:
 initial_pose = get_pose()
 errors = check_errors(initial_pose)
-cartesian_error = errors.ee_trans_error
+last_error = errors.ee_trans_error
 ball_caught = errors.ball_caught
-print("Cartesian error:", cartesian_error ,"m") #Directional error in degrees
+print("Cartesian error:", last_error ,"m") #Directional error in degrees
 print("Ball caught:", ball_caught) #Boolean tell that tells us if the ball was caught or not
 
+
 while ball_caught == False:
-	last_error = 0
-	while cartesian_error >= 0.60:
-		new_error =  move_l_return_error("z", 0.1)
-		last_error = new_error
+	while last_error >= 0.50:
+		new_error =  move_j_return_error("z", 0.1)
 		print("The new error with z+ is: ",  new_error)
-		while last_error >= 0.60:
-			if new_error > cartesian_error:
-				new_error =  move_l_return_error("z", -0.1)
-				last_error = new_error
-				print("The new error with z- is: ",  new_error)
-			new_error =  move_l_return_error("x", -0.2)
-			print("The new error with x- is: ",  new_error)
-			if new_error > last_error:
-				new_error =  move_l_return_error("x", +0.4)
-				last_error = new_error
-				print("The new error with x+ is: ",  new_error)
-			new_error =  move_l_return_error("y", -0.3)
-			print("The new error with y- is: ",  new_error)
-			if new_error > last_error:
-				new_error =  move_l_return_error("y", +0.6)
-				last_error = new_error
-				print("The new error with y+ is: ",  new_error)
-		cartesian_error = last_error
-		break
+		if new_error > last_error:
+			new_error =  move_j_return_error("z", -0.2)
+			print("The new error with z- is: ",  new_error)
+		else:
+			last_error = new_error
+		if new_error > last_error:
+			new_error =  move_j_return_error("z", 0.1)
+			last_error = new_error
+			print("The new error after having returned to the previous correct position is: ",  new_error)	
 
-	while cartesian_error >= 0.20:
-		new_error =  move_l_return_error("z", 0.05)
-		last_error = new_error
+
+		new_error =  move_j_return_error("x", -0.2)
+		print("The new error with x- is: ",  new_error)
+		if new_error > last_error:
+			new_error =  move_j_return_error("x", +0.4)
+			print("The new error with x+ is: ",  new_error)
+		else:
+			last_error = new_error
+		if new_error > last_error:
+			new_error =  move_j_return_error("x", -0.2)
+			last_error = new_error
+			print("The new error after having returned to the previous correct position is: ",  new_error)
+
+		new_error =  move_j_return_error("y", -0.3)
+		print("The new error with y- is: ",  new_error)
+		if new_error > last_error:
+			new_error =  move_j_return_error("y", +0.6)
+			print("The new error with y+ is: ",  new_error)
+		else:
+			last_error = new_error
+		if new_error > last_error:
+			new_error =  move_j_return_error("y", -0.3)
+			last_error = new_error
+			print("The new error after having returned to the previous correct position is: ",  new_error)
+
+
+
+	while last_error >= 0.15 and last_error < 0.50:
+		new_error =  move_j_return_error("z", 0.05)
 		print("The new error with z+ is: ",  new_error)
-		while new_error >= 0.20:
-			if new_error > last_error:
-				new_error =  move_l_return_error("z", +0.1)
-				last_error = new_error
-				print("The new error with z- is: ",  new_error)
+		if new_error > last_error:
+			new_error =  move_j_return_error("z", -0.1)
+			print("The new error with z- is: ",  new_error)
+		else:
+			last_error = new_error
+		if new_error > last_error:
+			new_error =  move_j_return_error("z", 0.05)
+			last_error = new_error
+			print("The new error after having returned to the previous correct position is: ",  new_error)	
 
-			new_error =  move_l_return_error("x", -0.15)
-			print("The new error with x- is: ",  new_error)
-			if new_error > last_error:
-				new_error =  move_l_return_error("x", +0.25)
-				last_error = new_error
-				print("The new error with x+ is: ",  new_error)
 
-			new_error =  move_l_return_error("y", -0.15)
-			print("The new error with y- is: ",  new_error)
-			if new_error > last_error:
-				new_error =  move_l_return_error("y", +0.25)
-				last_error = new_error
-				print("The new error with y+ is: ",  new_error)
-		cartesian_error is last_error if new_error > last_error else cartesian_error is new_error
-		break
+		new_error =  move_j_return_error("x", -0.15)
+		print("The new error with x- is: ",  new_error)
+		if new_error > last_error:
+			new_error =  move_j_return_error("x", +0.30)
+			print("The new error with x+ is: ",  new_error)
+		else:
+			last_error = new_error
+		if new_error > last_error:
+			new_error =  move_j_return_error("x", -0.15)
+			last_error = new_error
+			print("The new error after having returned to the previous correct position is: ",  new_error)
 
-	while cartesian_error > 0.050:
-		new_error =  move_j_return_error("z", 0.02)
-		last_error = new_error
+		new_error =  move_j_return_error("y", -0.15)
+		print("The new error with y- is: ",  new_error)
+		if new_error > last_error:
+			new_error =  move_j_return_error("y", +0.30)
+			print("The new error with y+ is: ",  new_error)
+		else:
+			last_error = new_error
+		if new_error > last_error:
+			new_error =  move_j_return_error("y", -0.15)
+			last_error = new_error
+			print("The new error after having returned to the previous correct position is: ",  new_error)
+
+
+
+
+	while last_error >= 0.050 and last_error < 0.15:
+		new_error =  move_j_return_error("z", 0.025)
 		print("The new error with z+ is: ",  new_error)
-		while new_error > 0.050:
-			if new_error > last_error:
-				new_error =  move_j_return_error("z", +0.04)
-				last_error = new_error
-				print("The new error with z- is: ",  new_error)
-
-			new_error =  move_j_return_error("x", -0.05)
-			print("The new error with x- is: ",  new_error)
-			if new_error > last_error:
-				new_error =  move_j_return_error("x", +0.10)
-				last_error = new_error
-				print("The new error with x+ is: ",  new_error)
-
-			new_error =  move_j_return_error("y", -0.06)
-			print("The new error with y- is: ",  new_error)
-			if new_error > last_error:
-				new_error =  move_j_return_error("y", +0.12)
-				last_error = new_error
-				print("The new error with y+ is: ",  new_error)
-		cartesian_error is last_error if new_error > last_error else cartesian_error is new_error
-		break
+		if new_error > last_error:
+			new_error =  move_j_return_error("z", -0.05)
+			print("The new error with z- is: ",  new_error)
+		else:
+			last_error = new_error
+		if new_error > last_error:
+			new_error =  move_j_return_error("z", 0.025)
+			last_error = new_error
+			print("The new error after having returned to the previous correct position is: ",  new_error)	
 
 
+		new_error =  move_j_return_error("x", -0.025)
+		print("The new error with x- is: ",  new_error)
+		if new_error > last_error:
+			new_error =  move_j_return_error("x", +0.050)
+			print("The new error with x+ is: ",  new_error)
+		else:
+			last_error = new_error
+		if new_error > last_error:
+			new_error =  move_j_return_error("x", -0.025)
+			last_error = new_error
+			print("The new error after having returned to the previous correct position is: ",  new_error)
 
+		new_error =  move_j_return_error("y", -0.025)
+		print("The new error with y- is: ",  new_error)
+		if new_error > last_error:
+			new_error =  move_j_return_error("y", +0.050)
+			print("The new error with y+ is: ",  new_error)
+		else:
+			last_error = new_error
+		if new_error > last_error:
+			new_error =  move_j_return_error("y", -0.025)
+			last_error = new_error
+			print("The new error after having returned to the previous correct position is: ",  new_error)
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+		if new_error < 0.05:
+			break
+print("Ball has been caught")
