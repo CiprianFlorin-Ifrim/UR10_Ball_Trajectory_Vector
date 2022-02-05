@@ -221,123 +221,67 @@ print("Ball caught:", ball_caught) #Boolean tell that tells us if the ball was c
 
 while ball_caught == False:
 	while last_error >= 0.50:
-		new_error =  move_j_return_error("z", 0.1)
-		print("The new error with z+ is: ",  new_error)
-		if new_error > last_error:
-			new_error =  move_j_return_error("z", -0.2)
-			print("The new error with z- is: ",  new_error)
-		else:
-			last_error = new_error
-		if new_error > last_error:
-			new_error =  move_j_return_error("z", 0.1)
-			last_error = new_error
-			print("The new error after having returned to the previous correct position is: ",  new_error)	
+		print("We are in the 0.5 loop")
 
+		setup = ["z", 0.1], ["x", -0.2], ["y", -0.3]
+		for i, item in enumerate(setup):
+			new_error =  move_j_return_error(item[0], item[1])
+			print("The new error with z+ is: ",  new_error)
+			if new_error > last_error:
+				new_error =  move_j_return_error(item[0], item[1]*(-2))
+				print("The new error with z- is: ",  new_error)
+				if new_error < last_error:
+					last_error = new_error
+			else:
+				last_error = new_error
+			if new_error > last_error:
+				new_error =  move_j_return_error(item[0], item[1])
+				last_error = new_error
+				print("The new error after having returned to the previous correct position is: ",  new_error)	
 
-		new_error =  move_j_return_error("x", -0.2)
-		print("The new error with x- is: ",  new_error)
-		if new_error > last_error:
-			new_error =  move_j_return_error("x", +0.4)
-			print("The new error with x+ is: ",  new_error)
-		else:
-			last_error = new_error
-		if new_error > last_error:
-			new_error =  move_j_return_error("x", -0.2)
-			last_error = new_error
-			print("The new error after having returned to the previous correct position is: ",  new_error)
-
-		new_error =  move_j_return_error("y", -0.3)
-		print("The new error with y- is: ",  new_error)
-		if new_error > last_error:
-			new_error =  move_j_return_error("y", +0.6)
-			print("The new error with y+ is: ",  new_error)
-		else:
-			last_error = new_error
-		if new_error > last_error:
-			new_error =  move_j_return_error("y", -0.3)
-			last_error = new_error
-			print("The new error after having returned to the previous correct position is: ",  new_error)
 
 
 
 	while last_error >= 0.15 and last_error < 0.50:
-		new_error =  move_j_return_error("z", 0.05)
-		print("The new error with z+ is: ",  new_error)
-		if new_error > last_error:
-			new_error =  move_j_return_error("z", -0.1)
-			print("The new error with z- is: ",  new_error)
-		else:
-			last_error = new_error
-		if new_error > last_error:
-			new_error =  move_j_return_error("z", 0.05)
-			last_error = new_error
-			print("The new error after having returned to the previous correct position is: ",  new_error)	
+		print("We are in the 0.15 loop")
 
-
-		new_error =  move_j_return_error("x", -0.15)
-		print("The new error with x- is: ",  new_error)
-		if new_error > last_error:
-			new_error =  move_j_return_error("x", +0.30)
-			print("The new error with x+ is: ",  new_error)
-		else:
-			last_error = new_error
-		if new_error > last_error:
-			new_error =  move_j_return_error("x", -0.15)
-			last_error = new_error
-			print("The new error after having returned to the previous correct position is: ",  new_error)
-
-		new_error =  move_j_return_error("y", -0.15)
-		print("The new error with y- is: ",  new_error)
-		if new_error > last_error:
-			new_error =  move_j_return_error("y", +0.30)
-			print("The new error with y+ is: ",  new_error)
-		else:
-			last_error = new_error
-		if new_error > last_error:
-			new_error =  move_j_return_error("y", -0.15)
-			last_error = new_error
-			print("The new error after having returned to the previous correct position is: ",  new_error)
-
+		setup = ["z", 0.05], ["x", -0.15], ["y", -0.15]
+		for i, item in enumerate(setup):
+			new_error =  move_j_return_error(item[0], item[1])
+			print("The new error with z+ is: ",  new_error)
+			if new_error > last_error:
+				new_error =  move_j_return_error(item[0], item[1]*(-2))
+				print("The new error with z- is: ",  new_error)
+				if new_error < last_error:
+					last_error = new_error
+			else:
+				last_error = new_error
+			if new_error > last_error:
+				new_error =  move_j_return_error(item[0], item[1])
+				last_error = new_error
+				print("The new error after having returned to the previous correct position is: ",  new_error)	
 
 
 
 	while last_error >= 0.050 and last_error < 0.15:
-		new_error =  move_j_return_error("z", 0.025)
-		print("The new error with z+ is: ",  new_error)
-		if new_error > last_error:
-			new_error =  move_j_return_error("z", -0.05)
-			print("The new error with z- is: ",  new_error)
-		else:
-			last_error = new_error
-		if new_error > last_error:
-			new_error =  move_j_return_error("z", 0.025)
-			last_error = new_error
-			print("The new error after having returned to the previous correct position is: ",  new_error)	
+		print("We are in the 0.05 loop")
 
+		setup = ["z", 0.025], ["x", -0.025], ["y", -0.025]
+		for i, item in enumerate(setup):
+			new_error =  move_j_return_error(item[0], item[1])
+			print("The new error with z+ is: ",  new_error)
+			if new_error > last_error:
+				new_error =  move_j_return_error(item[0], item[1]*(-2))
+				print("The new error with z- is: ",  new_error)
+				if new_error < last_error:
+					last_error = new_error
+			else:
+				last_error = new_error
+			if new_error > last_error:
+				new_error =  move_j_return_error(item[0], item[1])
+				last_error = new_error
+				print("The new error after having returned to the previous correct position is: ",  new_error)	
 
-		new_error =  move_j_return_error("x", -0.025)
-		print("The new error with x- is: ",  new_error)
-		if new_error > last_error:
-			new_error =  move_j_return_error("x", +0.050)
-			print("The new error with x+ is: ",  new_error)
-		else:
-			last_error = new_error
-		if new_error > last_error:
-			new_error =  move_j_return_error("x", -0.025)
-			last_error = new_error
-			print("The new error after having returned to the previous correct position is: ",  new_error)
-
-		new_error =  move_j_return_error("y", -0.025)
-		print("The new error with y- is: ",  new_error)
-		if new_error > last_error:
-			new_error =  move_j_return_error("y", +0.050)
-			print("The new error with y+ is: ",  new_error)
-		else:
-			last_error = new_error
-		if new_error > last_error:
-			new_error =  move_j_return_error("y", -0.025)
-			last_error = new_error
-			print("The new error after having returned to the previous correct position is: ",  new_error)
 
 		if new_error < 0.05:
 			break
