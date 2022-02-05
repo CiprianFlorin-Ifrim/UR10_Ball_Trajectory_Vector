@@ -107,14 +107,6 @@ def rotate_tool(rx, ry, rz):
 	movel( pose_wrt_base, a={}, v={})""".format(0, 0, 0, rx, ry, rz, max_acc, max_vel)
 	ur_script_pub.publish(header + command + footer)
 
-def deg_to_rad(joint_angles):
-	""" This is used to convert from degrees to radians. It's not really practical, it's just so i can select some degrees i want the robot to be in, then use this function so i can hard code those angles as radians quicker. """
-	converted_angles = []
-	for joint_angle in joint_angles:
-		rad_angle = (joint_angle * (math.pi/180))
-		converted_angles.append(rad_angle)
-	return converted_angles
-
 def home_robot():
 	max_acc = 1.0
 	max_vel = 1.0
@@ -194,6 +186,10 @@ def rotate_endeffector_return_error(moment, value):
 	rotation_error = (check_errors(get_pose())).ee_rot_error
 	return rotation_error
 
+
+def all_same(items):
+    return all(x == items[0] for x in items)
+
 #---------------Initialise---------------:
 print("Please Wait While System Starts Up...")
 rospy.init_node("example_node", anonymous = False)
@@ -203,7 +199,7 @@ print("System Started")
 
 
 #---------------main code---------------:
-print("Main code is now running") 
+print("Main code is now running!") 
 
 
 #---------------move to home coordinates---------------:
@@ -212,35 +208,60 @@ time.sleep(5)
 
 #---------------cartesian distance solution---------------:
 errors = check_errors(get_pose())
-last_error, ball_caught = errors.ee_trans_error, errors.ball_caught
-print("Cartesian error:", last_error ,"m") #Directional error in degrees
-
+dist_error, ball_caught = errors.ee_trans_error, errors.ball_caught
+rot_error = errors.ee_rot_error
+print("\nCartesian error:", dist_error ,"m" 
+	  "\nOrientational error:", rot_error, "degrees"
+      "\nBall caught:", ball_caught )
 
 setup = [[["z", 0.1, 0.50], ["x", -0.2, 0.50], ["y", -0.3, 0.50]], 
         [["z", 0.05, 0.15], ["x", -0.15, 0.15], ["y", -0.15, 0.15]], 
         [["z", 0.025, 0.05], ["x", -0.025, 0.05], ["y", -0.025, 0.05]]]
 
+rot_values = []
+values = [["pitch", 0.1],["yaw", -0.1],["roll", -0.1]]
+
 while ball_caught == False:
 	for val, cond in enumerate(setup):
-		print("While value is: ", cond[0+val][2])
-		while last_error >= cond[0+val][2]:
+		while dist_error >= cond[0+val][2]:
 			for j, item in enumerate(setup[0+val]):
-				print("Values are: ", "Item0:", item[0], "Item1:", item[1])
-				new_error =  move_j_return_error(item[0], item[1])
-				print("The new error with", item[0], "is: ",  new_error)
-				if new_error > last_error:
-					new_error =  move_j_return_error(item[0], item[1]*(-2))
-					print("The new error with", item[0], "is: ",  new_error) 
-					if new_error < last_error: last_error = new_error 
-				else:
-					last_error = new_error
-				if new_error > last_error:
-					new_error =  move_j_return_error(item[0], item[1])
-					last_error = new_error
-					print("The new error after having returned to the previous correct position is: ",  new_error)	
+				print("\nCurrent loop:", cond[0+val][2], "- Axis:", item[0], "- Distance:", item[1])
+				new_dist_error =  move_j_return_error(item[0], item[1])
+				print("The new error with", item[0], "is: ",  new_dist_error)
+				if new_dist_error > dist_error:
+					new_dist_error =  move_j_return_error(item[0], item[1]*(-2))
+					print("The new error with", item[0], "is: ",  new_dist_error) 
+					if new_dist_error < dist_error: dist_error = new_dist_error 
+				else: dist_error = new_dist_error
+				if new_dist_error > dist_error:
+					new_dist_error =  move_j_return_error(item[0], item[1])
+					dist_error = new_dist_error
+					print("Returned to the previous best position: ",  new_dist_error)	
 
-			if last_error < item[2]:
+			if dist_error < item[2]:
 				print("I am exiting current loop!")
 				break
 
 
+#---------------actuator rotation solution---------------:
+	for k, spec in enumerate(values):
+		print("Current loop -", "- Axis:", spec[0], "- Angle Deviation:", spec[1])
+		while rot_error >= 5:
+			new_rot_error = rotate_endeffector_return_error(spec[0], spec[1])
+			if new_rot_error > rot_error:
+				new_rot_error = rotate_endeffector_return_error(spec[0], spec[1]*(-1))
+				if new_rot_error < rot_error: rot_error = new_rot_error
+			else:
+				rot_error = new_rot_error
+			rot_values.append(rot_error)
+			print("Rotation error is: ", rot_error)
+
+			if len(rot_values) > 4:
+				if all_same(rot_values[-5:-1]): 
+					rot_values.clear()
+					break
+		print("Exited the rotation while loop!")
+
+
+	if dist_error < 0.05 and rot_error < 5.0: break
+print("Ball was caught!")
