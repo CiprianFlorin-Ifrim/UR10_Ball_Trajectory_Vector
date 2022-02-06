@@ -1,6 +1,6 @@
 # ur10_ball_trajectory_vector
 Program for catching a flying object thrown into the robot workspace with a UR10 arm, inside the ROS ecosystem.
-The GitHub repository is: https://github.com/CiprianFlorin-Ifrim/ur10_ball_trajectory_vector. Please note accessed must be request before being able to check the files!
+The GitHub repository is: https://github.com/CiprianFlorin-Ifrim/ur10_ball_trajectory_vector. Please note access must be request before being able to check the files!
 
 **RESOURCES:**
 1) https://www.universal-robots.com/articles/ur/application-installation/what-is-a-singularity/
