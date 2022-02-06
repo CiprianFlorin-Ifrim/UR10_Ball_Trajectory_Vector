@@ -1,0 +1,505 @@
+#!/usr/bin/env python3
+
+#---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#------------------------------------------------------------------------------------------LIBRARIES------------------------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+import rospy                                                                                                #import library to execute python code under ROS
+from robot_control_simulation.srv import *                                                                  #response msg type for the robot simulation package                                         
+import time                                                                                                 #import time library for delays and timing purposes 
+import math                                                                                                 #additional efficient python fucntions
+import csv                                                                                                  #implements classes to read and write tabular data in CSV format
+import os                                                                                                   #adds OS level functions
+import glob                                                                                                 #finds all the pathnames matching a specified pattern accor
+import numpy as np                                                                                          #import numpy mathematical library
+from std_msgs.msg import *                                                                                  #import ROS std message type
+from geometry_msgs.msg import *                                                                             #import ROS geometry message type
+import tf2_msgs.msg                                                                                         #import ROS tranfer frame messages
+from tf.transformations import euler_from_quaternion                                                        #tranfer frames processing library
+from collections import Counter                                                                             #library for optimised processes
+from tkinter import *                                                                                       #tkinter GUI library
+from tkinter import messagebox                                                                              #tkinter messagebox for user input
+from PIL import ImageTk,Image                                                                               #import Pillow for more advanced image processing
+
+
+
+#---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#------------------------------------------------------------------------------------------VARIABLES------------------------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#defined robot parameters
+max_acc = 1.0
+max_vel = 1.0
+header = "def myProg():"
+footer = "\nend"
+
+#defined variables
+sequence = []
+home_waypoint = [-1, -1.8, 2, -1.57, 1.57, 1.57]                                                            #define x,y,z,roll,pitch,yaw of the home waypoint
+endless_on = False
+return_pressed = False
+
+
+
+#---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#-----------------------------------------------------------------------------------------DEFINITIONS-----------------------------------------------------------------------------------------------
+#---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+#------------------------------------------------------------------------------------READ URD10 ROBOT POSE-----------------------------------------------------------------------------------------
+def get_pose():                                                                                             #get current pose from the /tf topic
+    #print("Getting pose")                                                                                  #debugging purposes
+    #work around to bad pose readout
+    pose_list = []
+    x_list = []                                                                                             #we will round and store the X coordinate of each pose, to compare them
+    for i in range(5):                                                                                      #work around to bug
+        message = rospy.wait_for_message('/tf', tf2_msgs.msg.TFMessage)                                     #connects to topic, waits for one message and returns it
+        pose = message.transforms[-1].transform                                                             #from the last message in the list, get out just the transforms
+        pose_list.append(pose)
+        x_list.append(round(pose.translation.x, 2))                                                         #round to make it easier to compare them
+    common_x = Counter(x_list).most_common(1)[0]
+    if common_x[1] == len(pose_list):                                                                       #check if all our poses had the same x, if they did just use the latest
+        pose = pose_list[-1]
+    else:
+        #print("A bad readout has occured")                                                                 #debugging purposes
+        pose_index = x_list.index(common_x[0])
+        pose = pose_list[pose_index]
+
+    #convert from tf2msg to geometry msg pose
+    my_pose = Pose()
+    my_pose.position = pose.translation
+    my_pose.orientation = pose.rotation
+    #print("Pose gotten")
+    return my_pose
+
+#-------------------------------------------------------------------------------DISTANCE & ROTATION ERROR CHECKING----------------------------------------------------------------------------------
+def check_errors(robot_pose):
+    #print("Waiting for service...")
+    rospy.wait_for_service('ball_traj')
+    try:
+        #print("Service is running. Checking error!")
+        my_ball_traj = rospy.ServiceProxy('ball_traj', ball_traj)
+        errors = my_ball_traj(robot_pose)
+        return errors
+    except rospy.ServiceException as e:
+        print("Service call failed: %s"%e)
+
+#-------------------------------------------------------------------------------QUATERNION TO RX/RY/RZ CONVERSION-----------------------------------------------------------------------------------
+def convert_to_euler(quat):                                                                                 #Takes a quaternion and converts the wxyz into rx ry rz
+    x = quat.x
+    y = quat.y
+    z =  quat.z
+    w =  quat.w
+    my_quat = [x,y,z,w]                                                                                     #Euler from quat needs them in this order, and in a list
+    (roll, pitch, yaw) = euler_from_quaternion(my_quat)
+
+    yawMatrix = np.matrix([
+    [math.cos(yaw), -math.sin(yaw), 0],
+    [math.sin(yaw), math.cos(yaw), 0],
+    [0, 0, 1]
+    ])
+
+    pitchMatrix = np.matrix([
+    [math.cos(pitch), 0, math.sin(pitch)],
+    [0, 1, 0],
+    [-math.sin(pitch), 0, math.cos(pitch)]
+    ])
+
+    rollMatrix = np.matrix([
+    [1, 0, 0],
+    [0, math.cos(roll), -math.sin(roll)],
+    [0, math.sin(roll), math.cos(roll)]
+    ])
+
+    R = yawMatrix * pitchMatrix * rollMatrix
+
+    theta = math.acos(((R[0, 0] + R[1, 1] + R[2, 2]) - 1) / 2)
+    multi = 1 / (2 * math.sin(theta))
+
+    rx = multi * (R[2, 1] - R[1, 2]) * theta
+    ry = multi * (R[0, 2] - R[2, 0]) * theta
+    rz = multi * (R[1, 0] - R[0, 1]) * theta
+    return rx, ry, rz
+
+#-------------------------------------------------------------------------------------------ROTATE TCP----------------------------------------------------------------------------------------------
+def rotate_tool(rx, ry, rz):                                                                                #Function that rotates withtool frame instead of base frame
+    header = "def myProg():"
+    footer = "\nend"
+    command = """
+    global pose_wrt_tool = p[{}, {}, {}, {}, {}, {}]
+    global pose_wrt_base = pose_trans(get_forward_kin(), pose_wrt_tool)
+    movel( pose_wrt_base, a={}, v={})""".format(0, 0, 0, rx, ry, rz, max_acc, max_vel)
+    ur_script_pub.publish(header + command + footer)
+
+#---------------------------------------------------------------------------------------MOVE TO GIVEN POINT-----------------------------------------------------------------------------------------
+def move_robot(point):
+    max_acc = 1.0
+    max_vel = 1.0
+    header = "def myProg():"
+    footer = "\nend"
+    move_msg ="\nmovej({},a={},v={},t={},r={})".format(point, max_acc ,max_vel,0,0)
+    move = header + move_msg + footer
+    ur_script_pub.publish(move)
+    return move
+
+#--------------------------------------------------------------------------------------CONVERT TO ROS MESSAGE---------------------------------------------------------------------------------------
+def generate_command(pose):                                                                                 #Convert pose into command
+    #The URSIM-ROS drivers require us to send strings that it decodes and uses for data in it's inverse kinematics, so we convert our pose msg into a string before sending it off.
+    #It's good practice to use msgs when sending data around in ROS, instead of sending everything off as strings.
+    header = "def myProg():"
+    footer = "\nend"
+    x = pose.position.x
+    y = pose.position.y
+    z = pose.position.z
+    rx, ry, rz = convert_to_euler(pose.orientation)
+    pose_str = '['+str(x)+ ',' +str(y)+ ',' +str(z)+ ',' +str(rx)+ ',' +str(ry)+ ',' +str(rz) +']'
+    command = header + '\n\tmovel(p{}, a={}, v={}, t=0, r=0)'.format(pose_str, max_acc, max_vel) + footer
+    return command
+
+#------------------------------------------------------------------------------------------TCP J MOVEMENT-------------------------------------------------------------------------------------------
+def move_j_pose(pose):
+    header = "def myProg():"
+    footer = "\nend"
+    x = pose.position.x
+    y = pose.position.y
+    z = pose.position.z
+    rx, ry, rz = convert_to_euler(pose.orientation)
+    pose_str = '['+str(x)+ ',' +str(y)+ ',' +str(z)+ ',' +str(rx)+ ',' +str(ry)+ ',' +str(rz) +']'
+    command = header + '\n\tmovej(p{}, a={}, v={}, t=0, r=0)'.format(pose_str, max_acc, max_vel) + footer
+    return command
+
+
+#---------------------------------------------------------------------------------TCP L MOVEMENT WITH ERROR RETURN----------------------------------------------------------------------------------
+def move_l_return_error(axis, value):
+    data_received = (axis, value)
+    sequence.append(data_received)
+
+    initial_pose = get_pose()
+    if axis == "x":
+        initial_pose.position.x += value
+    elif axis == "y":
+        initial_pose.position.y += value
+    elif axis == "z":
+        initial_pose.position.z += value
+
+    ur_script_pub.publish(generate_command(initial_pose))
+    time.sleep(2)
+    distance_error = (check_errors(initial_pose)).ee_trans_error
+    return distance_error
+
+
+#---------------------------------------------------------------------------------TCP J MOVEMENT WITH ERROR RETURN----------------------------------------------------------------------------------
+def move_j_return_error(axis, value, error_wanted):
+    data_received = (axis, value)
+    sequence.append(data_received)
+
+    initial_pose = get_pose()
+    if axis == "x":
+        initial_pose.position.x += value
+    elif axis == "y":
+        initial_pose.position.y += value
+    elif axis == "z":
+        initial_pose.position.z += value
+
+    ur_script_pub.publish(move_j_pose(initial_pose))
+    time.sleep(2)
+
+    if error_wanted == 1:
+        distance_error = (check_errors(initial_pose)).ee_trans_error
+        return distance_error
+
+#--------------------------------------------------------------------------------ROTATION MOVEMENT WITH ERROR RETURN--------------------------------------------------------------------------------
+def rotate_endeffector_return_error(moment, value, error_requested):
+    data_received = (moment, value)
+    sequence.append(data_received)
+
+    if moment == "roll":
+        rotate_tool(value, 0, 0)
+    elif moment == "pitch":
+        rotate_tool(0, value, 0)
+    elif moment == "yaw":
+        rotate_tool(0, 0, value)
+
+    if error_requested == 1:
+        rotation_error = (check_errors(get_pose())).ee_rot_error
+        return rotation_error
+
+#-------------------------------------------------------------------------------------LIST ELEMENTS COMPARISON--------------------------------------------------------------------------------------
+def all_same(items):
+    return all(x == items[0] for x in items)
+
+#-------------------------------------------------------------------------CHECK SIMILARITY BETWEEN TWO CONSECUTIVE ELEMENTS ------------------------------------------------------------------------
+def check_similarity(lst):
+    last = lst[0]
+    for num in lst[1:]:
+        if num == last and len(num[0]) == 1:
+            lst.remove(num)
+        last = num
+
+#-----------------------------------------------------------------------------------------WRITE TO CSV FILE-----------------------------------------------------------------------------------------
+def write_to_file(data):
+    with open("sequence.csv", "a", newline='') as fp:
+        wr = csv.writer(fp, dialect='excel')
+        wr.writerow(data)
+
+#-----------------------------------------------------------------------------------------WRITE TO CSV FILE-----------------------------------------------------------------------------------------
+def list_processing(list_given):
+    check_similarity(list_given)                                                                            #get the stored sequence and check if any movej msg sent repeated(stuck), then delete
+
+    for l, seq in enumerate(list_given):                                                                    #go through all the list of lists in the sequence with a for loop
+        data = [seq[0], seq[1]]                                                                             #add the first and second elements to a fresh data list variale
+        write_to_file(data)                                                                                 #recall the CSV writer definition, and write the data variable to a CSV file
+
+#-----------------------------------------------------------------------------------------------TIMER-----------------------------------------------------------------------------------------------
+def code_timer(tstart,tstop):                                                                               #define timer function
+    process_time = (tstop-tstart)                                                                           #perform time substraction
+    mins, sec = divmod(process_time, 60)                                                                    #split to minutes and seconds
+    return '{:02.0f} min:{:02.0f} sec'.format(mins,sec)                                                     #return the execution time
+
+
+
+#---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#-------------------------------------------------------------------------------------------FULL MAIN CODE------------------------------------------------------------------------------------------
+#--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- 
+
+#-----------------------------------------------------------------------------------------INITIALISE SYSTEM-----------------------------------------------------------------------------------------
+print("Please Wait While System Starts Up...")                                                              #inform the user that the system is starting
+rospy.init_node("trajectory_explorer", anonymous = False)                                                   #create ros node with name "trajectory_explorer"
+ur_script_pub = rospy.Publisher('/ur_hardware_interface/script_command', String, queue_size=10)             #connect to topic that takes urscripts
+time.sleep(2)                                                                                               #give code time to connect and initialise before we do anything
+print("System Started")                                                                                     #inform the user that the system has started
+
+#---------------------------------------------------------------------------------------------MAIN CODE---------------------------------------------------------------------------------------------
+def main_code():
+    repeat = 0
+    print("Main code is now running!")                                                                      #print message that the main code is running
+    print("Moving to home position!")                                                                       #print message that the robot is moving to home
+    move_robot(home_waypoint)                                                                               #move the robot to the home waypoint defined 
+    time.sleep(7)                                                                                           #delay for the robot arm to reach the home position
+    print("Home position reached!")                                                                         #print message that the home position has been reached
+
+#--------------------------------------------------------------------------------------------PARAMENTERS--------------------------------------------------------------------------------------------
+    errors = check_errors(get_pose())                                                                       #get the robot pose and find the distance and rotation errors
+    dist_error, rot_error, ball_caught  = errors.ee_trans_error, errors.ee_rot_error, errors.ball_caught    #define separate variables for the cartesian and rotation errors, as well as the ball                                                                  
+    print("\nCartesian error:", dist_error ,"m"                                                             #print message with the cartesian error
+          "\nOrientational error:", rot_error, "degrees"                                                    #print message with the rotation error 
+          "\nBall caught:", ball_caught )                                                                   #print message if the ball has been caught of not
+ 
+    setup = [[["z", 0.1, 0.50], ["x", -0.2, 0.50], ["y", -0.3, 0.50]],                                      #define list of lists for the main algorithm to go throuhg for the cartesian error
+            [["z", 0.05, 0.15], ["x", -0.15, 0.15], ["y", -0.15, 0.15]],                                    #1st element = axis, 2nd element = distance to move, 3rd element = while loop condition
+            [["z", 0.025, 0.05], ["x", -0.025, 0.05], ["y", -0.025, 0.05]]]
+
+    rot_values = []                                                                                         #define list of rotation errors for processing later
+    values = [["pitch", 0.1],["yaw", -0.1],["roll", -0.1]]                                                  #list of lists for the rotation algorithm; 1st element = axis, 2nd element = angle
+
+#------------------------------------------------------------------------------------CARTESIAN DISTANCE SOLUTION------------------------------------------------------------------------------------
+    timer_start = time.monotonic()                                                                          #start timer to time execution
+    while ball_caught == False:                                                                             #while the ball is not caught, run the solving algorithms
+        for val, cond in enumerate(setup):                                                                  #for every item in the list of lists "setup"
+            while dist_error >= cond[0+val][2]:                                                             #while error is equal/bigger than the 3rd elem+current for loop of each list in setup
+                for j, item in enumerate(setup[0+val]):                                                     #go through all the lists in setup, 9 total
+                    print("\nCurrent loop:",cond[0+val][2],"- Axis:", item[0],"- Distance:",item[1])        #print the current axis and distance used for processing as well as the loop condition
+                    new_dist_error =  move_j_return_error(item[0], item[1], 1)                              #call movej definition and use the 1st and 2nd element from the current list
+                    print("The new error with", item[0], "is: ",  new_dist_error)                           #print the axis of actuation and the new error
+                    if new_dist_error > dist_error:                                                         #if the new error is bigger that the previous error then:
+                        new_dist_error =  move_j_return_error(item[0], item[1]*(-2), 1)                     #call movej def using the same axis, with double the distance in the opposite direction
+                        print("The new error with", item[0], "is: ",  new_dist_error)                       #print the new error to the user                       
+                        if new_dist_error < dist_error: dist_error = new_dist_error                         #if the new error after the opposite movement is lower, save it as last error
+                    else: dist_error = new_dist_error                                                       #else if the original movement generated a lower error, it becomes the last error
+                    if new_dist_error > dist_error:                                                         #if the new error after the opposite movement is higher, return to the starting point
+                        new_dist_error =  move_j_return_error(item[0], item[1], 1)                          #call movej def using the same axis, with double the distance in the opposite direction
+                        dist_error = new_dist_error                                                         #set the newest error as the last error
+                        print("Returned to the previous best position: ",  new_dist_error)                  #display to the user that we have returned to the previous best
+
+                if dist_error < item[2]:                                                                    #if the current latest error is smaller than the 3rd element in the setup list, then:
+                    print("I am exiting current loop!")                                                     #inform the user that the loop will be exited
+                    break                                                                                   #break the current while loop -> move forward by 1 item in the for loop 3rd value
+
+#-------------------------------------------------------------------------------------ACTUATOR ROTATION SOLUTION------------------------------------------------------------------------------------
+        for k, spec in enumerate(values):                                                                   #since we got to the dist threshold, go through the list of lists for the rotation
+            print("Current loop -", "- Axis:", spec[0], "- Angle Deviation:", spec[1])                      #inform the user on the current loop, axis and angle deviation with list values
+            while rot_error >= 5:                                                                           #while the rotation error is higher/equal to 5deg(threshold), then:
+                new_rot_error = rotate_endeffector_return_error(spec[0], spec[1], 1)                        #call the rotation definition with the 1st elem as axis and 2nd elem as angle deviation                                                                                                    
+                if new_rot_error > rot_error:                                                               #continue with the previous command until the error becomes larger than the latest,then:
+                    new_rot_error = rotate_endeffector_return_error(spec[0], spec[1]*(-1), 1)               #move in the opposite direction on the same axis
+                    if new_rot_error < rot_error: rot_error = new_rot_error                                 #if the newest error is lower than the latest error, set it as the latest
+                else:                                                                                       #else if the original movement generated a lower error that the previously stored one
+                    rot_error = new_rot_error                                                               #set that error as the latest error
+                rot_values.append(rot_error)                                                                #append the error to the previously defined list containing all rotation errors
+                print("Rotation error is: ", rot_error)                                                     #print to the user the current rotation error
+
+                if len(rot_values) > 7:                                                                     #if the list containing rotation errors has more than 7 elements, then:
+                    if all_same(rot_values[-3:-1]) and repeat <= 2:                                         #check the similarity of the last 3 errors, if equal then:
+                        rot_values.clear()                                                                  #clear the rotation errors list
+                        repeat =+ 1                                                                         #add to the repeat variable +1 representing a completed while loop sequence
+                        break                                                                               #then break the loop
+                    if all_same(rot_values[-7:-1]) and repeat > 2:                                          #if the last 7 elements are the same and we've exited the loop 2 times, then:
+                        values = [["pitch", -0.1],["yaw", 0.1],["roll", 0.1]]                               #reverse the main values list with the opposite direction for all axes
+                        break                                                                               #then break and let the while loop repeat until the ball has been caught
+            print("Exited the rotation while loop!")                                                        #print that the rotation while loop has been exited
+
+        if endless_on == False:                                                                             #check the "endless mode" switch global variable
+            if (dist_error < 0.05 and rot_error < 5.0): break                                               #if false, only break the main loop on successful catch
+        if return_pressed: break                                                                            #if at any point the return button has been pressed, exit the main loop
+    print("BALL WAS CAUGHT!")                                                                               #inform the user that the ball has been caught
+
+#-------------------------------------------------------------------------------------------RUNTIME DISPLAY-----------------------------------------------------------------------------------------
+    timer_stop = time.monotonic()                                                                           #stop the timer
+    timer = str(code_timer(timer_start, timer_stop))                                                        #recall definition to process time and format it accordingly
+    messagebox.showinfo(title='Dataset Creation', message='Operation Complete. The process took: '+timer)   #display execution time in a dialog box to the user
+
+#-----------------------------------------------------------------------------------SEQUENCE STORING AND PROCESSING---------------------------------------------------------------------------------
+    if (messagebox.askyesno('Sequence Creation', 'Do you want to save the sequence to a CSV file?')):       #ask the user if they want to save the current sequence
+        if glob.glob('sequence.csv'):                                                                       #if a file already exists then 
+            if (messagebox.askokcancel('Sequence Creation', 'File already exists. Want to replace?')):      #ask the user if they want to replace
+                os.remove('sequence.csv')                                                                   #remove the existing file
+                list_processing(sequence)                                                                   #call definition to process the list saved in memory and then save it to file
+                messagebox.showinfo('Sequence Creation', 'Operation Completed')                             #inform the user that the operation has been completed
+            else:                                                                                           #if the user does not want to replace the existing file, then:
+                messagebox.showinfo('Sequence Creation', 'Operation Cancelled')                             #inform the user that the operation has been cancelled
+        else:                                                                                               #else if the file does not exist, then:
+            list_processing(sequence)                                                                       #proceed with the processing and writing by recalling the definition
+            messagebox.showinfo('Sequence Creation', 'Operation Completed')                                 #inform the user that the operation has been completed
+    else:                                                                                                   #else if the user does not want to save the sequence saved in memory
+        messagebox.showinfo('Sequence Creation', 'The sequence will not be saved!')                         #inform the user on their choice, and do nothing else
+
+
+
+#---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+#----------------------------------------------------------------------------------------------INTERFACE--------------------------------------------------------------------------------------------
+#--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- 
+def output_window(mode):                                                                                    #change window for output, run in mode 1(determine sequence) or mode 2(execute sequence)
+    def break_loop():                                                                                       #definition to break main code loop on return button press
+        global return_pressed                                                                               #global variable
+        return_pressed is True if return_pressed else return_pressed is False                               #change variable return_pressed state
+
+    def switchwindow():                                                                                     #definition to switch between windows with ease
+        output_window.destroy()                                                                             #destroy the output window
+        main_window.update()                                                                                #update the main window
+        main_window.deiconify()                                                                             #re-instate main window
+        
+    def redirector(inputStr):                                                                               #definition that takes all print strings as inputs
+        try:                                                                                                #try to:                                                                
+            text_widget.insert(END, inputStr)                                                               #insert the print message into the text widget at the end   
+            text_widget.see(END)                                                                            #always scroll to the last line
+            output_window.update()                                                                          #update the output window with the new added text
+        except TclError:                                                                                    #in case of _tkinter.TclError (if the return button has been pressed during execution)
+            main_window.mainloop()                                                                          #run main window tkinter loop
+            
+
+    output_window = Toplevel(main_window, height=605, width=805, bg='#030B1B', bd=7)                        #create a top level window
+    output_window.protocol("WM_DELETE_WINDOW", on_closing)                                                  #on close button event, run definition that asks for confirmation
+    output_window.resizable(False, False)                                                                   #set the output window as non resizable
+    main_window.withdraw()                                                                                  #withdraw the main loop
+
+
+    #define text widget for output
+    text_widget = Text(output_window, height=32, width=98, bg = "#030B1B", fg = "white",                    #define a text widget to print in the GUI
+                             highlightbackground = "#00FFFF", highlightcolor= "#00FFFF")
+    text_widget.place(x=0,y=0)                                                                              #place the widget at specified location
+      
+    
+    #define a scrollbar
+    scroll_bar = Scrollbar(output_window)                                                                   #create a scrollbar so that the user can scroll the text widget
+    scroll_bar.place(x=775, y=250)                                                                          #place the scrollbar at defined location
+     
+    #return button
+    return_button = Button(output_window, font = ("Helvetica", 20), text = "RETURN", bg = "black",          #create a return button to switch between windows by calling the definition
+                          fg = "#00FFFF", width = 51, height = 1, highlightbackground = "#00FFFF",          #remove any time of border
+                          bd=0, highlightcolor= "#00FFFF", command=lambda:[switchwindow(), break_loop()])   #run both switch window as well as break loop definitions
+    return_button.place(x=0, y=552)                                                                         #place the button at specified positions
+
+    #redirect any print call to the definition
+    sys.stdout.write = redirector                                                                           #whenever sys.stdout.write is called, redirector is called
+    if 'normal' == output_window.state() and mode == 1:                                                     #only if the output window is running and the mode is 1, proceed
+        main_code()                                                                                         #execute main code
+    elif 'normal' == output_window.state() and mode == 2:                                                   #else if the output window is running and the mode is 2, proceed
+        memory()                                                                                            #execute saved sequence code
+
+#------------------------------------------------------------------------------ANIMATED BACKGROUND FOR WINDOW DEFINITION--------------------------------------------------------------------
+def update(ind):                                                                                            #definition that checks the frames of the gif used for the background
+    try:                                                                                                    #try to run the following
+        frame = frames[ind]                                                                                 #set current frame
+        ind += 1                                                                                            #update frame
+        if ind == frameCnt:                                                                                 #if frame variable has reached the end of all frames present in the gif
+            ind = 0                                                                                         #reset the frame counter to 0
+        gif_background.configure(image=frame)                                                               #set the background image to the current gif frame
+        main_window.after(60, update, ind)                                                                  #update the main window
+    except IndexError:                                                                                      #in the case of an IndexError(gif has less frames than specified), then:
+        pass                                                                                                #pass
+
+#-------------------------------------------------------------------------------------EXIT MESSAGE BOX DEFINITION----------------------------------------------------------------------------
+def on_closing():                                                                                           #define function to check if the user really wants to close the program
+    if messagebox.askyesno("Quit", "Do you want to quit?"):                                                 #display message box
+        main_window.destroy()                                                                               #destory main window
+
+#-------------------------------------------------------------------------------------WINDOWS SWITCHING DEFINITION---------------------------------------------------------------------------
+def switch():                                                                                               #define function that changes global state for the endless switch
+    global endless_on                                                                                       
+    if endless_on:                                                                                          #if the current state is True, then:
+        switch_button.config(image = disabled)                                                              #change image of button to "disabled"
+        endless_on = False                                                                                  #set global state to False
+    else:                                                                                                   #else if current state if False, then:
+        switch_button.config(image = enabled)                                                               #change image of button to "disabled"
+        endless_on = True                                                                                   #set global state to False
+ 
+#-------------------------------------------------------------------------------------WINDOWS SWITCHING DEFINITION---------------------------------------------------------------------------
+def memory():
+    csvreader = csv.reader(open("sequence.csv"))                                                            #use the csv library to read the saved CSV file
+    header = next(csvreader)                                                                                #read every header
+    execute_sequence = []                                                                                   #create an empty list to store the values
+    for row in csvreader:                                                                                   #read every row in the CSV file
+        execute_sequence.append(row)                                                                        #append to the empty list created earlier
+    #print("CSV File Data:", read_sequence)                                                                 #debugging purposes
+
+    move_robot(home_waypoint)                                                                               #move the robot to the home waypoint defined 
+    time.sleep(7)                                                                                           #delay for the robot to complete the movement
+    for i, item in enumerate(execute_sequence):                                                             #for every list present inside the execute_sequence(list of lists)
+        if len(item[0]) < 2:                                                                                #if the first element (the axis) has less than 2 characters:
+            print("Completing a MoveJ action! Axis: ", item[0], " Movement: ", item[1])                     #print the time of MoveJ movement that will be completed
+            move_j_return_error(item[0], float(item[1]), 0)                                                 #recall movej definition without error checking
+        else:                                                                                               #else if the first element has more than 2 characters (it means it's a rotation)
+            print("Rotating actuator! Axis: ", item[0], " Angle Deviation: ", item[1])                      #print the time of rotation that will be completed
+            rotate_endeffector_return_error(item[0], float(item[1]), 0)                                     #execute end effector rotation by recalling the definition without error checking
+
+    print("Sequence Completed")                                                                             #inform the user that the sequence has been completed with a print in the GUI
+    messagebox.showinfo('Sequence Execution', 'The sequence has been completed!')                           #inform the user that the sequence has been completed with a dialog box
+
+#---------------------------------------------------------------------------------------------MAIN WINDOW------------------------------------------------------------------------------------
+main_window = Tk()                                                                                          #create Tkinter object representing the main window
+ 
+#adjust size of window
+main_window.geometry("800x600")                                                                             #set the main window resolution
+main_window.resizable(False, False)                                                                         #set the main window as non resizable
+
+
+#show gif animation with a label
+frameCnt = 60                                                                                               #define the number of frames to read from the gif
+frames = [PhotoImage(file='background.gif',format = 'gif -index %i' %(i)) for i in range(frameCnt)]         #load all frames from the gif file and pass them to update definition
+gif_background = Label(main_window, bd=0, borderwidth=0, highlightthickness = 0)                            #create a label that represents the background
+gif_background.place(x = 0,y = 0)                                                                           #place it at specified positions
+
+#defined images for TKinter GUI
+enabled = PhotoImage(file = "enabled.png")                                                                  #load image for the button "enabled" state
+disabled = PhotoImage(file = "disabled.png")                                                                #load image for the button "disabled" state
+acquire_sequence = PhotoImage(file='acquire_sequence.png')                                                  #load image for the button executing the main code for finding a sequence 
+execute_sequence = PhotoImage(file='execute_sequence.png')                                                  #load image for the button that executes the saved sequence
+title = PhotoImage(file="title.png")                                                                        #load image for the title label
+
+#title
+main_window.title('TRAJECTORY EXPLORER')                                                                    #set window title
+title_label = Label(image=title, bg='#030B1B')                                                              #create label to display the title image
+title_label.place(x=110, y=10)                                                                              #place the label at the specified positions
+      
+#buttons
+button_acquire = Button(main_window, image=acquire_sequence, bd=0, highlightthickness = 0, borderwidth=0,   #create button with no borders for the main code
+                              bg='#030B1B', activebackground='#030B1B', command= lambda:output_window(1))  
+button_execute = Button(main_window, image=execute_sequence, bd=0, highlightthickness = 0, borderwidth=0,   #create button with no borders for the saved sequence execution
+                              bg='#030B1B', activebackground='#030B1B', command= lambda:output_window(2)) 
+switch_button = Button(main_window, image=disabled, bg='#030B1B', highlightthickness = 0,                   #create button for the endless mode state
+                       borderwidth=0, bd=0, activebackground='#030B1B', command = switch)                         
+button_acquire.place(x=19, y=450)                                                                           #place the button_acquire at the specified positions
+button_execute.place(x=533, y=450)                                                                          #place the button_execute at the specified positions                           
+switch_button.place(x=232, y=505)                                                                           #place the switch_button at the specified positions
+
+#execute window
+main_window.after(0, update, 0)                                                                             #update the main window
+main_window.protocol("WM_DELETE_WINDOW", on_closing)                                                        #in case of close button press, run definition that asks for confirmation
+main_window.mainloop()                                                                                      #execute tkinter main loop to continously update the main_window
