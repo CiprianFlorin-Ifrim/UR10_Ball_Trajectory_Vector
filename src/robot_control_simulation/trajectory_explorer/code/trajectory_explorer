@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python3                                                                                      #needed so the file is seen as python_executable under linux
 
 #---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #------------------------------------------------------------------------------------------LIBRARIES------------------------------------------------------------------------------------------------
@@ -26,16 +26,14 @@ from PIL import ImageTk,Image                                                   
 #------------------------------------------------------------------------------------------VARIABLES------------------------------------------------------------------------------------------------
 #---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #defined robot parameters
-max_acc = 1.0
-max_vel = 1.0
-header = "def myProg():"
-footer = "\nend"
+max_acc = 1.0                                                                                               #general arm maximum acceleration
+max_vel = 1.0                                                                                               #general arm maximum velocity
 
 #defined variables
-sequence = []
+sequence = []                                                                                               #empty sequence to store the corrent final movement
 home_waypoint = [-1, -1.8, 2, -1.57, 1.57, 1.57]                                                            #define x,y,z,roll,pitch,yaw of the home waypoint
-endless_on = False
-return_pressed = False
+endless_on = False                                                                                          #endless mode button switch state
+return_pressed = False                                                                                      #return button state
 
 
 
@@ -63,181 +61,184 @@ def get_pose():                                                                 
         pose = pose_list[pose_index]
 
     #convert from tf2msg to geometry msg pose
-    my_pose = Pose()
-    my_pose.position = pose.translation
-    my_pose.orientation = pose.rotation
+    my_pose = Pose()                                                                                        #get robot pose
+    my_pose.position = pose.translation                                                                     #define pose x,y,z positions
+    my_pose.orientation = pose.rotation                                                                     #define pose roll,pitch,yaw values
     #print("Pose gotten")
     return my_pose
 
 #-------------------------------------------------------------------------------DISTANCE & ROTATION ERROR CHECKING----------------------------------------------------------------------------------
-def check_errors(robot_pose):
-    #print("Waiting for service...")
-    rospy.wait_for_service('ball_traj')
-    try:
-        #print("Service is running. Checking error!")
-        my_ball_traj = rospy.ServiceProxy('ball_traj', ball_traj)
-        errors = my_ball_traj(robot_pose)
-        return errors
-    except rospy.ServiceException as e:
-        print("Service call failed: %s"%e)
+def check_errors(robot_pose):                                                                               #definition to check for errors
+    #print("Waiting for service...")                                                                        #debugging purposes
+    rospy.wait_for_service('ball_traj')                                                                     #wait for the ball_traj node before continuing (in case it is not running)
+    try:                                                                                                    #try 
+        #print("Service is running. Checking error!")                                                       #debugging purposes
+        my_ball_traj = rospy.ServiceProxy('ball_traj', ball_traj)                                           #check the service
+        errors = my_ball_traj(robot_pose)                                                                   #check errors based on current robot pose
+        return errors                                                                                       #return errors
+    except rospy.ServiceException as e:                                                                     #except service error (service not running)
+        print("Service call failed: %s"%e)                                                                  #inform the user the service could not be called
 
 #-------------------------------------------------------------------------------QUATERNION TO RX/RY/RZ CONVERSION-----------------------------------------------------------------------------------
-def convert_to_euler(quat):                                                                                 #Takes a quaternion and converts the wxyz into rx ry rz
-    x = quat.x
-    y = quat.y
-    z =  quat.z
-    w =  quat.w
-    my_quat = [x,y,z,w]                                                                                     #Euler from quat needs them in this order, and in a list
-    (roll, pitch, yaw) = euler_from_quaternion(my_quat)
+def convert_to_euler(quat):                                                                                 #takes a quaternion and converts the wxyz into rx ry rz
+    x = quat.x                                                                                              #divide the quaternion into elements, assign x
+    y = quat.y                                                                                              #divide the quaternion into elements, assign x
+    z =  quat.z                                                                                             #divide the quaternion into elements, assign x
+    w =  quat.w                                                                                             #divide the quaternion into elements, assign x
+    my_quat = [x,y,z,w]                                                                                     #euler from quat needs them in this order, and in a list
+    (roll, pitch, yaw) = euler_from_quaternion(my_quat)                                                     #define roll,pitch,yaw roation axes from quaternion
 
-    yawMatrix = np.matrix([
+    yawMatrix = np.matrix([                                                                                 #define YAW matrix
     [math.cos(yaw), -math.sin(yaw), 0],
     [math.sin(yaw), math.cos(yaw), 0],
     [0, 0, 1]
     ])
 
-    pitchMatrix = np.matrix([
-    [math.cos(pitch), 0, math.sin(pitch)],
+    pitchMatrix = np.matrix([                                                                               #define PITCH matrix
+    [math.cos(pitch), 0, math.sin(pitch)], 
     [0, 1, 0],
     [-math.sin(pitch), 0, math.cos(pitch)]
     ])
 
-    rollMatrix = np.matrix([
+    rollMatrix = np.matrix([                                                                                #define ROLL matrix
     [1, 0, 0],
     [0, math.cos(roll), -math.sin(roll)],
     [0, math.sin(roll), math.cos(roll)]
     ])
 
-    R = yawMatrix * pitchMatrix * rollMatrix
+    R = yawMatrix * pitchMatrix * rollMatrix                                                                #define rotation matrix
 
-    theta = math.acos(((R[0, 0] + R[1, 1] + R[2, 2]) - 1) / 2)
+    theta = math.acos(((R[0, 0] + R[1, 1] + R[2, 2]) - 1) / 2)                                              #define theta
     multi = 1 / (2 * math.sin(theta))
 
-    rx = multi * (R[2, 1] - R[1, 2]) * theta
-    ry = multi * (R[0, 2] - R[2, 0]) * theta
-    rz = multi * (R[1, 0] - R[0, 1]) * theta
+    rx = multi * (R[2, 1] - R[1, 2]) * theta                                                                #define rx from matrix
+    ry = multi * (R[0, 2] - R[2, 0]) * theta                                                                #define ry from matrix
+    rz = multi * (R[1, 0] - R[0, 1]) * theta                                                                #define rz from matrix
     return rx, ry, rz
 
 #-------------------------------------------------------------------------------------------ROTATE TCP----------------------------------------------------------------------------------------------
-def rotate_tool(rx, ry, rz):                                                                                #Function that rotates withtool frame instead of base frame
-    header = "def myProg():"
-    footer = "\nend"
-    command = """
+def rotate_tool(rx, ry, rz):                                                                                #function that rotates withtool frame instead of base frame
+    header = "def myProg():"                                                                                #ROS message header
+    footer = "\nend"                                                                                        #ROS Message footer
+    command = """                                                                                           
     global pose_wrt_tool = p[{}, {}, {}, {}, {}, {}]
     global pose_wrt_base = pose_trans(get_forward_kin(), pose_wrt_tool)
-    movel( pose_wrt_base, a={}, v={})""".format(0, 0, 0, rx, ry, rz, max_acc, max_vel)
-    ur_script_pub.publish(header + command + footer)
+    movel( pose_wrt_base, a={}, v={})""".format(0, 0, 0, rx, ry, rz, max_acc, max_vel)                      #define command message
+    ur_script_pub.publish(header + command + footer)                                                        #publish the message containing the header, main msg and footer
 
 #---------------------------------------------------------------------------------------MOVE TO GIVEN POINT-----------------------------------------------------------------------------------------
-def move_robot(point):
-    max_acc = 1.0
-    max_vel = 1.0
-    header = "def myProg():"
-    footer = "\nend"
-    move_msg ="\nmovej({},a={},v={},t={},r={})".format(point, max_acc ,max_vel,0,0)
-    move = header + move_msg + footer
-    ur_script_pub.publish(move)
-    return move
+def move_robot(point):                                                                                      #independent function to move to a specific given point
+    max_acc = 1.0                                                                                           #set movement max acceleration
+    max_vel = 1.0                                                                                           #set movement max velocity
+    header = "def myProg():"                                                                                #ROS message header
+    footer = "\nend"                                                                                        #ROS Message footer
+    move_msg ="\nmovej({},a={},v={},t={},r={})".format(point, max_acc ,max_vel,0,0)                         #create message with correct formatting
+    move = header + move_msg + footer                                                                       #combine the message with the header and footer
+    ur_script_pub.publish(move)                                                                             #publish the message
+    return move 
 
 #--------------------------------------------------------------------------------------CONVERT TO ROS MESSAGE---------------------------------------------------------------------------------------
-def generate_command(pose):                                                                                 #Convert pose into command
+def generate_command(pose):                                                                                 #convert pose into command
     #The URSIM-ROS drivers require us to send strings that it decodes and uses for data in it's inverse kinematics, so we convert our pose msg into a string before sending it off.
     #It's good practice to use msgs when sending data around in ROS, instead of sending everything off as strings.
-    header = "def myProg():"
-    footer = "\nend"
-    x = pose.position.x
-    y = pose.position.y
-    z = pose.position.z
-    rx, ry, rz = convert_to_euler(pose.orientation)
-    pose_str = '['+str(x)+ ',' +str(y)+ ',' +str(z)+ ',' +str(rx)+ ',' +str(ry)+ ',' +str(rz) +']'
-    command = header + '\n\tmovel(p{}, a={}, v={}, t=0, r=0)'.format(pose_str, max_acc, max_vel) + footer
-    return command
+
+    header = "def myProg():"                                                                                #ROS message header
+    footer = "\nend"                                                                                        #ROS Message footer
+    x = pose.position.x                                                                                     #variable to store the x positon
+    y = pose.position.y                                                                                     #variable to store the y positon
+    z = pose.position.z                                                                                     #variable to store the z positon
+    rx, ry, rz = convert_to_euler(pose.orientation)                                                         #euler to deg conversion
+    pose_str = '['+str(x)+ ',' +str(y)+ ',' +str(z)+ ',' +str(rx)+ ',' +str(ry)+ ',' +str(rz) +']'          #define pose
+    command = header + '\n\tmovel(p{}, a={}, v={}, t=0, r=0)'.format(pose_str, max_acc, max_vel) + footer   #define command message
+    return command                                                                                          #return full command for execution
 
 #------------------------------------------------------------------------------------------TCP J MOVEMENT-------------------------------------------------------------------------------------------
-def move_j_pose(pose):
-    header = "def myProg():"
-    footer = "\nend"
-    x = pose.position.x
-    y = pose.position.y
-    z = pose.position.z
-    rx, ry, rz = convert_to_euler(pose.orientation)
-    pose_str = '['+str(x)+ ',' +str(y)+ ',' +str(z)+ ',' +str(rx)+ ',' +str(ry)+ ',' +str(rz) +']'
-    command = header + '\n\tmovej(p{}, a={}, v={}, t=0, r=0)'.format(pose_str, max_acc, max_vel) + footer
-    return command
+def move_j_pose(pose):                                                                                      #function to send movej message to the UR10
+    header = "def myProg():"                                                                                #ROS message header
+    footer = "\nend"                                                                                        #ROS Message footer
+    x = pose.position.x                                                                                     #variable to store the x positon
+    y = pose.position.y                                                                                     #variable to store the y positon
+    z = pose.position.z                                                                                     #variable to store the z positon
+    rx, ry, rz = convert_to_euler(pose.orientation)                                                         #euler to deg conversion
+    pose_str = '['+str(x)+ ',' +str(y)+ ',' +str(z)+ ',' +str(rx)+ ',' +str(ry)+ ',' +str(rz) +']'          #define pose
+    command = header + '\n\tmovej(p{}, a={}, v={}, t=0, r=0)'.format(pose_str, max_acc, max_vel) + footer   #define command message
+    return command                                                                                          #return full command for execution
 
 
 #---------------------------------------------------------------------------------TCP L MOVEMENT WITH ERROR RETURN----------------------------------------------------------------------------------
-def move_l_return_error(axis, value):
-    data_received = (axis, value)
-    sequence.append(data_received)
+def move_l_return_error(axis, value, error_wanted):                                                         #function to movel the arm and return the error from the vector
+    data_received = (axis, value)                                                                           #create data received variable, give it received data
+    sequence.append(data_received)                                                                          #append the data to the sequence list of lists initialised at the beginning
 
-    initial_pose = get_pose()
-    if axis == "x":
-        initial_pose.position.x += value
-    elif axis == "y":
-        initial_pose.position.y += value
-    elif axis == "z":
-        initial_pose.position.z += value
+    initial_pose = get_pose()                                                                               #get current robot pose
+    if axis == "x":                                                                                         #if the axis given is x, then perform a movement on the x axis
+        initial_pose.position.x += value                                                                    #with the given movement distance in meters 
+    elif axis == "y":                                                                                       #if the axis given is y, then perform a movement on the y axis
+        initial_pose.position.y += value                                                                    #with the given movement distance in meters 
+    elif axis == "z":                                                                                       #if the axis given is z, then perform a movement on the z axis
+        initial_pose.position.z += value                                                                    #with the given movement distance in meters  
 
-    ur_script_pub.publish(generate_command(initial_pose))
-    time.sleep(2)
-    distance_error = (check_errors(initial_pose)).ee_trans_error
-    return distance_error
+    ur_script_pub.publish(generate_command(initial_pose))                                                   #publish the movement to the arm node
+    time.sleep(2)                                                                                           #two seconds delay for the arm to complete the movement
 
+    if error_wanted == 1:                                                                                   #if the error is requested
+        distance_error = (check_errors(initial_pose)).ee_trans_error                                        #then perform error checking for the rotation and return the found error
+        return distance_error 
+ 
 
 #---------------------------------------------------------------------------------TCP J MOVEMENT WITH ERROR RETURN----------------------------------------------------------------------------------
-def move_j_return_error(axis, value, error_wanted):
-    data_received = (axis, value)
-    sequence.append(data_received)
+def move_j_return_error(axis, value, error_wanted):                                                         #function to movej the arm and return the error from the vector
+    data_received = (axis, value)                                                                           #create data received variable, give it received data
+    sequence.append(data_received)                                                                          #append the data to the sequence list of lists initialised at the beginning
 
-    initial_pose = get_pose()
-    if axis == "x":
-        initial_pose.position.x += value
-    elif axis == "y":
-        initial_pose.position.y += value
-    elif axis == "z":
-        initial_pose.position.z += value
+    initial_pose = get_pose()                                                                               #get current robot pose
+    if axis == "x":                                                                                         #if the axis given is x, then perform a movement on the x axis
+        initial_pose.position.x += value                                                                    #with the given movement distance in meters  
+    elif axis == "y":                                                                                       #if the axis given is y, then perform a movement on the y axis
+        initial_pose.position.y += value                                                                    #with the given movement distance in meters  
+    elif axis == "z":                                                                                       #if the axis given is z, then perform a movement on the z axis
+        initial_pose.position.z += value                                                                    #with the given movement distance in meters                 
 
-    ur_script_pub.publish(move_j_pose(initial_pose))
-    time.sleep(2)
+    ur_script_pub.publish(move_j_pose(initial_pose))                                                        #publish the movement to the arm node
+    time.sleep(2)                                                                                           #two seconds delay for the arm to complete the movement
 
-    if error_wanted == 1:
-        distance_error = (check_errors(initial_pose)).ee_trans_error
+    if error_wanted == 1:                                                                                   #if the error is requested
+        distance_error = (check_errors(initial_pose)).ee_trans_error                                        #then perform error checking for the rotation and return the found error
         return distance_error
 
 #--------------------------------------------------------------------------------ROTATION MOVEMENT WITH ERROR RETURN--------------------------------------------------------------------------------
-def rotate_endeffector_return_error(moment, value, error_requested):
-    data_received = (moment, value)
-    sequence.append(data_received)
+def rotate_endeffector_return_error(moment, value, error_requested):                                        #function to rotate the end effector of the arm and return the error from the vector
+    data_received = (moment, value)                                                                         #create data received variable, give it received data
+    sequence.append(data_received)                                                                          #append the data to the sequence list of lists initialised at the beginning
 
-    if moment == "roll":
-        rotate_tool(value, 0, 0)
-    elif moment == "pitch":
-        rotate_tool(0, value, 0)
-    elif moment == "yaw":
-        rotate_tool(0, 0, value)
+    if moment == "roll":                                                                                    #if the moment given is roll, then perform a roll movement
+        rotate_tool(value, 0, 0)                                                                            #by recalling the TCP rotation definition with the given value
+    elif moment == "pitch":                                                                                 #if the moment given is pitch, then perform a pitch movement
+        rotate_tool(0, value, 0)                                                                            #by recalling the TCP rotation definition with the given value
+    elif moment == "yaw":                                                                                   #if the moment given is pitch, then perform a pitch movement
+        rotate_tool(0, 0, value)                                                                            #by recalling the TCP rotation definition with the given value
 
-    if error_requested == 1:
-        rotation_error = (check_errors(get_pose())).ee_rot_error
+    if error_requested == 1:                                                                                #if the error is requested
+        rotation_error = (check_errors(get_pose())).ee_rot_error                                            #then perform error checking for the rotation and return the found error
         return rotation_error
 
 #-------------------------------------------------------------------------------------LIST ELEMENTS COMPARISON--------------------------------------------------------------------------------------
-def all_same(items):
-    return all(x == items[0] for x in items)
+def all_same(items):                                                                                        #function to check if all elements in a list are the same
+    return all(x == items[0] for x in items)                                                                #return true if all are equal, false otherwise
 
 #-------------------------------------------------------------------------CHECK SIMILARITY BETWEEN TWO CONSECUTIVE ELEMENTS ------------------------------------------------------------------------
-def check_similarity(lst):
-    last = lst[0]
-    for num in lst[1:]:
-        if num == last and len(num[0]) == 1:
-            lst.remove(num)
-        last = num
+def check_similarity(lst):                                                                                  #function to check if two elements are the same in a list
+    last = lst[0]                                                                                           #define the initial last element from index 0
+    for num in lst[1:]:                                                                                     #go through the list starting from index 1
+        if num == last and len(num[0]) == 1:                                                                #if the last element and current element are the same, and also have 1 character length:
+            lst.remove(num)                                                                                 #then remove it (the reason for length 1 is to check the x,y,z axis, but not rotation)
+        last = num                                                                                          #set the current element as the last element
 
 #-----------------------------------------------------------------------------------------WRITE TO CSV FILE-----------------------------------------------------------------------------------------
-def write_to_file(data):
-    with open("sequence.csv", "a", newline='') as fp:
-        wr = csv.writer(fp, dialect='excel')
-        wr.writerow(data)
+def write_to_file(data):                                                                                    #function to write to a CSV file
+    with open("sequence.csv", "a", newline='') as fp:                                                       #open CSV file with given name and delimiter
+        wr = csv.writer(fp, dialect='excel')                                                                #set writer type
+        wr.writerow(data)                                                                                   #write given data to the document
 
 #-----------------------------------------------------------------------------------------WRITE TO CSV FILE-----------------------------------------------------------------------------------------
 def list_processing(list_given):
@@ -325,12 +326,12 @@ def main_code():
                 rot_values.append(rot_error)                                                                #append the error to the previously defined list containing all rotation errors
                 print("Rotation error is: ", rot_error)                                                     #print to the user the current rotation error
 
-                if len(rot_values) > 7:                                                                     #if the list containing rotation errors has more than 7 elements, then:
-                    if all_same(rot_values[-3:-1]) and repeat <= 2:                                         #check the similarity of the last 3 errors, if equal then:
+                if len(rot_values) > 5:                                                                     #if the list containing rotation errors has more than 5 elements, then:
+                    if all_same(rot_values[-3:-1]) and repeat <= 1:                                         #check the similarity of the last 3 errors, if equal then:
                         rot_values.clear()                                                                  #clear the rotation errors list
                         repeat =+ 1                                                                         #add to the repeat variable +1 representing a completed while loop sequence
                         break                                                                               #then break the loop
-                    if all_same(rot_values[-7:-1]) and repeat > 2:                                          #if the last 7 elements are the same and we've exited the loop 2 times, then:
+                    if all_same(rot_values[-5:-1]) and repeat > 2:                                          #if the last 5 elements are the same and we've exited the loop 2 times, then:
                         values = [["pitch", -0.1],["yaw", 0.1],["roll", 0.1]]                               #reverse the main values list with the opposite direction for all axes
                         break                                                                               #then break and let the while loop repeat until the ball has been caught
             print("Exited the rotation while loop!")                                                        #print that the rotation while loop has been exited
@@ -349,7 +350,7 @@ def main_code():
     if (messagebox.askyesno('Sequence Creation', 'Do you want to save the sequence to a CSV file?')):       #ask the user if they want to save the current sequence
         if glob.glob('sequence.csv'):                                                                       #if a file already exists then 
             if (messagebox.askokcancel('Sequence Creation', 'File already exists. Want to replace?')):      #ask the user if they want to replace
-                os.remove('sequence.csv')                                                                   #remove the existing file
+                os.unlink('sequence.csv')                                                                   #remove the existing file
                 list_processing(sequence)                                                                   #call definition to process the list saved in memory and then save it to file
                 messagebox.showinfo('Sequence Creation', 'Operation Completed')                             #inform the user that the operation has been completed
             else:                                                                                           #if the user does not want to replace the existing file, then:
@@ -442,25 +443,28 @@ def switch():                                                                   
  
 #-------------------------------------------------------------------------------------WINDOWS SWITCHING DEFINITION---------------------------------------------------------------------------
 def memory():
-    csvreader = csv.reader(open("sequence.csv"))                                                            #use the csv library to read the saved CSV file
-    header = next(csvreader)                                                                                #read every header
-    execute_sequence = []                                                                                   #create an empty list to store the values
-    for row in csvreader:                                                                                   #read every row in the CSV file
-        execute_sequence.append(row)                                                                        #append to the empty list created earlier
-    #print("CSV File Data:", read_sequence)                                                                 #debugging purposes
+    if glob.glob('sequence.csv'):                                                                           #if a file is present. then: 
+        csvreader = csv.reader(open("sequence.csv"))                                                        #use the csv library to read the saved CSV file
+        header = next(csvreader)                                                                            #read every header
+        execute_sequence = []                                                                               #create an empty list to store the values
+        for row in csvreader:                                                                               #read every row in the CSV file
+            execute_sequence.append(row)                                                                    #append to the empty list created earlier
+        #print("CSV File Data:", read_sequence)                                                             #debugging purposes
 
-    move_robot(home_waypoint)                                                                               #move the robot to the home waypoint defined 
-    time.sleep(7)                                                                                           #delay for the robot to complete the movement
-    for i, item in enumerate(execute_sequence):                                                             #for every list present inside the execute_sequence(list of lists)
-        if len(item[0]) < 2:                                                                                #if the first element (the axis) has less than 2 characters:
-            print("Completing a MoveJ action! Axis: ", item[0], " Movement: ", item[1])                     #print the time of MoveJ movement that will be completed
-            move_j_return_error(item[0], float(item[1]), 0)                                                 #recall movej definition without error checking
-        else:                                                                                               #else if the first element has more than 2 characters (it means it's a rotation)
-            print("Rotating actuator! Axis: ", item[0], " Angle Deviation: ", item[1])                      #print the time of rotation that will be completed
-            rotate_endeffector_return_error(item[0], float(item[1]), 0)                                     #execute end effector rotation by recalling the definition without error checking
+        move_robot(home_waypoint)                                                                           #move the robot to the home waypoint defined 
+        time.sleep(7)                                                                                       #delay for the robot to complete the movement
+        for i, item in enumerate(execute_sequence):                                                         #for every list present inside the execute_sequence(list of lists)
+            if len(item[0]) < 2:                                                                            #if the first element (the axis) has less than 2 characters:
+                print("Completing a MoveJ action! Axis: ", item[0], " Movement: ", item[1])                 #print the time of MoveJ movement that will be completed
+                move_j_return_error(item[0], float(item[1]), 0)                                             #recall movej definition without error checking
+            else:                                                                                           #else if the first element has more than 2 characters (it means it's a rotation)
+                print("Rotating actuator! Axis: ", item[0], " Angle Deviation: ", item[1])                  #print the time of rotation that will be completed
+                rotate_endeffector_return_error(item[0], float(item[1]), 0)                                 #execute end effector rotation by recalling the definition without error checking
 
-    print("Sequence Completed")                                                                             #inform the user that the sequence has been completed with a print in the GUI
-    messagebox.showinfo('Sequence Execution', 'The sequence has been completed!')                           #inform the user that the sequence has been completed with a dialog box
+        print("Sequence Completed")                                                                         #inform the user that the sequence has been completed with a print in the GUI
+        messagebox.showinfo('Sequence Execution', 'The sequence has been completed!')                       #inform the user that the sequence has been completed with a dialog box
+    else:                                                                                                   #else if no file is present, then:
+        messagebox.showinfo('Sequence Execution', 'There is no sequence CSV file available!')               #inform the user that the no CSV file is present in the directory
 
 #---------------------------------------------------------------------------------------------MAIN WINDOW------------------------------------------------------------------------------------
 main_window = Tk()                                                                                          #create Tkinter object representing the main window
