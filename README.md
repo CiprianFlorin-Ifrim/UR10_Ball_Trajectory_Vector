@@ -82,9 +82,10 @@ source devel/setup.bash
 
 
 **VERSIONS:**
-- Version 1.0 - 05/02/2022 - Full code. GUI finished, edge cases added and the algorithm has been optimised. The sequence execution part of the program has been added.
-- Version 0.8-0.9 - 04/02/2022 Minor changes with edge cases and optimisation.
-- Version 0.7 - 03/02/2022 - Ball execution algortihm has been super optimised for runtime and to take the least amount of space. (in line). Partial GUI developed.
+- Version 1.1 - 07/02/2022 - Commented the full code. Added extra edge cases and fixed some bugs in regards to CSV file generation.
+- Version 1.0 - 06/02/2022 - Full code. GUI finished, edge cases added and the algorithm has been optimised. The sequence execution part of the program has been added.
+- Version 0.8-0.9 - 05/02/2022 Minor changes with edge cases and optimisation.
+- Version 0.7 - 04/02/2022 - Ball execution algortihm has been super optimised for runtime and to take the least amount of space. (in line). Partial GUI developed.
 - Version 0.6 - 10/01/2022 - The algorithm can now also solve the rotation error, however a better solution must be found.
 - Version 0.5 - 09/01/2022 - The arm is able to solve the ball distance, although with very unoptimed code.
 - Version 0.2-0.4 - 01/2022 - Testing, debugging and algorithm development.
