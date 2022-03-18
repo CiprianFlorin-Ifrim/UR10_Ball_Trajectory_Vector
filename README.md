@@ -1,4 +1,4 @@
-# ur10_ball_trajectory_vector
+# Object Finder/Catcher Algorithm with Sequence Memorization 
 Program for catching a flying/static object thrown into the robot workspace with a UR10 arm, without direct axis movements, inside the ROS ecosystem.
 The video demonstration is available on YouTube unlisted: https://youtu.be/ZkYYVmsR97o
 
