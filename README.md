@@ -1,6 +1,6 @@
 # Object Finder/Catcher Algorithm with Sequence Memorization 
 Program for catching a flying/static object thrown into the robot workspace with a UR10 arm, without direct axis movements, inside the ROS ecosystem.
-The video demonstration is available on YouTube unlisted: https://youtu.be/ZkYYVmsR97o
+The video demonstration is available on YouTube: https://youtu.be/ZkYYVmsR97o
 
 **RESOURCES:**
 1) https://www.universal-robots.com/articles/ur/application-installation/what-is-a-singularity/
@@ -16,6 +16,9 @@ Then, it starts a similar algorithm for the rotation error, which moves the actu
 Once the ball has been caught, the user is informed on the time needed to catch the ball based on the randomly generated vector. 
 Keep in mind, this includes the delays for all movement
 After that, the user is asked if they want to save the best sequence found, as a CSV file, so that it can be executed at a later stage.
+
+![pasted image 0](https://user-images.githubusercontent.com/94687473/161779259-68530f2e-4d3f-4ec8-8ec1-fddcda59f879.png)
+![Industrial-Robotic-Arm](https://user-images.githubusercontent.com/94687473/161778888-34fb74a6-ebba-49d8-ba2d-fadfa127a1ec.png)
 
 2) The second mode uses the saved sequence, if there is one, and completes a the whole list of movements required.
 
