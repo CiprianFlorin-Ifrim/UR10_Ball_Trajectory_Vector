@@ -12,7 +12,10 @@ The code can be executed in 2 modes:
 1) The first mode starts a search algorithm that perform a search sequence in order to reach the vector point.
 Firstly it performs a search algortihm that has the robot arm moving in all axes, with different distances in order to reach the threshold distance error.
 Then, it starts a similar algorithm for the rotation error, which moves the actuator one of two ways, positive or negative, on all axis until the error is less than 5 degrees.
-![pasted image 0](https://user-images.githubusercontent.com/94687473/161779259-68530f2e-4d3f-4ec8-8ec1-fddcda59f879.png)
+
+<p align="center">
+  <img width="460" height="300" src="https://user-images.githubusercontent.com/94687473/161779259-68530f2e-4d3f-4ec8-8ec1-fddcda59f879.png">
+</p>
 
 Once the ball has been caught, the user is informed on the time needed to catch the ball based on the randomly generated vector. 
 Keep in mind, this includes the delays for all movement
